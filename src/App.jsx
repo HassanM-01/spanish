@@ -10,11 +10,13 @@ import { levelFor } from "./lib/levels.js";
 import Today from "./tabs/Today.jsx";
 import Capture from "./tabs/Capture.jsx";
 import Progress from "./tabs/Progress.jsx";
+import Guide from "./tabs/Guide.jsx";
 
 const TABS = [
   { id: "today", label: "Today" },
   { id: "capture", label: "Capture" },
   { id: "progress", label: "Progress" },
+  { id: "guide", label: "Guide" },
 ];
 
 // ---- shared primitives ----
@@ -143,6 +145,7 @@ export default function App() {
         {tab === "today" && <Today state={state} update={update} hours={hours} lvl={lvl} />}
         {tab === "capture" && <Capture state={state} update={update} />}
         {tab === "progress" && <Progress state={state} update={update} hours={hours} lvl={lvl} />}
+        {tab === "guide" && <Guide />}
       </main>
     </div>
   );
