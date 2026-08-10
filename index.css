@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { background: #12161C; }
+body { margin: 0; }
+::selection { background: rgba(232, 163, 61, 0.28); }
+*:focus-visible { outline: 2px solid #E8A33D; outline-offset: 2px; border-radius: 6px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2A323E; border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes streakPulse {
+  0% { box-shadow: 0 0 0 0 rgba(232, 163, 61, 0.45); }
+  100% { box-shadow: 0 0 0 14px rgba(232, 163, 61, 0); }
+}
+.streak-pulse { animation: streakPulse 0.8s ease-out 1; }
+
+.gauge-indicator { transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .streak-pulse { animation: none; }
+  .gauge-indicator { transition: none; }
+  * { scroll-behavior: auto !important; }
+}
