@@ -49,6 +49,10 @@ copies `index.html` to `404.html` automatically so refreshes never 404.
 
 ## Notes
 
+- The **Guide** tab renders `GUIDE.md` from the repo root. It's imported with Vite's
+  `?raw` at build time, so the guide ships inside the bundle and reads offline — edit
+  the markdown and rebuild. `src/lib/markdown.js` is a small subset parser (headings,
+  paragraphs, lists, inline marks); each `##` becomes a Card.
 - Channel links: three couldn't be verified at build time and use YouTube search URLs
   instead (marked in `src/config/channels.js`); the spec's "Español con Samuel" wasn't
   findable and was swapped for Easy Spanish. Curate freely.
