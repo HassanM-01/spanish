@@ -353,6 +353,14 @@ function SpanishSpeakingTrainer() {
   const [rawOpen, setRawOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => readKey());
   const [keyDraft, setKeyDraft] = useState("");
+  const [dgKey, setDgKey] = useState(() => {
+    try {
+      return localStorage.getItem("st_dg_key") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [dgDraft, setDgDraft] = useState("");
   const idRef = useRef(0);
   const messagesRef = useRef([]);
   const phaseRef = useRef(phase);
@@ -372,6 +380,12 @@ function SpanishSpeakingTrainer() {
   const rafRef = useRef(null);
   const ringRef = useRef(null);
   const pendingTimerRef = useRef(null);
+  const dgKeyRef = useRef("");
+  const dgFailedRef = useRef(false);
+  const wsRef = useRef(null);
+  const mediaRecRef = useRef(null);
+  const dgStreamRef = useRef(null);
+  const dgStopTimerRef = useRef(null);
   const sendPendingRef = useRef(() => {
   });
   const sessionStartRef = useRef(null);
@@ -385,6 +399,7 @@ function SpanishSpeakingTrainer() {
     speedRef.current = speed;
     voicesRef.current = voices;
     voiceURIRef.current = voiceURI;
+    dgKeyRef.current = dgKey;
   });
   const setMsgs = (next) => {
     messagesRef.current = next;
@@ -455,12 +470,12 @@ function SpanishSpeakingTrainer() {
     } catch (e) {
     }
   };
-  const startMeter = async () => {
+  const startMeter = async (existingStream) => {
     if (prefersReduced) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = existingStream || await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!listeningRef.current) {
-        stream.getTracks().forEach((t) => t.stop());
+        if (!existingStream) stream.getTracks().forEach((t) => t.stop());
         return;
       }
       streamRef.current = stream;
@@ -510,7 +525,7 @@ function SpanishSpeakingTrainer() {
       ringRef.current.setAttribute("stroke-opacity", "0");
     }
   };
-  const startListening = () => {
+  const startWebSpeech = () => {
     if (phaseRef.current !== "live" || listeningRef.current || awaitingRef.current || pendingRef.current || replyErrorRef.current)
       return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -579,7 +594,164 @@ function SpanishSpeakingTrainer() {
       stopMeter();
     }
   };
+  const finishDeepgram = () => {
+    if (dgStopTimerRef.current) {
+      clearTimeout(dgStopTimerRef.current);
+      dgStopTimerRef.current = null;
+    }
+    try {
+      dgStreamRef.current && dgStreamRef.current.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+    }
+    wsRef.current = null;
+    mediaRecRef.current = null;
+    dgStreamRef.current = null;
+    listeningRef.current = false;
+    setListening(false);
+    stopMeter();
+    const t = finalRef.current.trim();
+    finalRef.current = "";
+    setInterim("");
+    if (abortedRef.current) {
+      abortedRef.current = false;
+      return;
+    }
+    if (t) queuePending(t);
+    else setSttNote((n) => n || "Didn't catch anything \u2014 try again.");
+  };
+  const dgFail = (stream) => {
+    dgFailedRef.current = true;
+    try {
+      stream && stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {
+      }
+      wsRef.current = null;
+    }
+    mediaRecRef.current = null;
+    dgStreamRef.current = null;
+    listeningRef.current = false;
+    setListening(false);
+    stopMeter();
+    setSttNote("Deepgram unavailable \u2014 switched to the browser recognizer.");
+    startWebSpeech();
+  };
+  const startDeepgram = async () => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setSttNote(null);
+    finalRef.current = "";
+    abortedRef.current = false;
+    listeningRef.current = true;
+    setListening(true);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      listeningRef.current = false;
+      setListening(false);
+      setSttNote("Mic access was blocked \u2014 allow the microphone and try again.");
+      return;
+    }
+    if (!listeningRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    dgStreamRef.current = stream;
+    startMeter(stream);
+    let ws;
+    try {
+      ws = new WebSocket(
+        "wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&interim_results=true&smart_format=true&punctuate=true",
+        ["token", dgKeyRef.current]
+      );
+    } catch (e) {
+      dgFail(stream);
+      return;
+    }
+    wsRef.current = ws;
+    ws._gotTranscript = false;
+    ws.onopen = () => {
+      if (wsRef.current !== ws) return;
+      let mr;
+      try {
+        const mime = window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+        mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch (e) {
+        dgFail(stream);
+        return;
+      }
+      mediaRecRef.current = mr;
+      mr.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0 && ws.readyState === 1) ws.send(ev.data);
+      };
+      mr.start(250);
+    };
+    ws.onmessage = (ev) => {
+      if (wsRef.current !== ws) return;
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      const alt = msg && msg.channel && msg.channel.alternatives && msg.channel.alternatives[0];
+      if (!alt) return;
+      const t = (alt.transcript || "").trim();
+      if (!t) return;
+      ws._gotTranscript = true;
+      if (msg.is_final) {
+        finalRef.current = (finalRef.current + " " + t).trim() + " ";
+        setInterim(finalRef.current.trim());
+      } else {
+        setInterim((finalRef.current + " " + t).trim());
+      }
+    };
+    ws.onerror = () => {
+      if (wsRef.current !== ws) return;
+      if (!ws._gotTranscript) {
+        dgFailedRef.current = true;
+        setSttNote("Deepgram connection failed \u2014 check the key in Settings. Using the browser recognizer for now.");
+      }
+    };
+    ws.onclose = () => {
+      if (wsRef.current !== ws) return;
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      finishDeepgram();
+    };
+  };
+  const startListening = () => {
+    if (phaseRef.current !== "live" || listeningRef.current || awaitingRef.current || pendingRef.current || replyErrorRef.current)
+      return;
+    if (dgKeyRef.current && !dgFailedRef.current) startDeepgram();
+    else startWebSpeech();
+  };
   const stopListening = () => {
+    if (wsRef.current) {
+      const ws = wsRef.current;
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      try {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "CloseStream" }));
+      } catch (e) {
+      }
+      if (!dgStopTimerRef.current)
+        dgStopTimerRef.current = setTimeout(() => {
+          try {
+            ws.close();
+          } catch (e) {
+          }
+        }, 1200);
+      return;
+    }
     try {
       if (recogRef.current) {
         recogRef.current._stopRequested = true;
@@ -590,6 +762,17 @@ function SpanishSpeakingTrainer() {
   };
   const cancelListening = () => {
     abortedRef.current = true;
+    if (wsRef.current) {
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      try {
+        wsRef.current.close();
+      } catch (e) {
+      }
+      return;
+    }
     try {
       recogRef.current && recogRef.current.abort();
     } catch (e) {
@@ -864,6 +1047,35 @@ Produce the JSON analysis now.`
     }
     setApiKey(k);
     setKeyDraft("");
+    const d = dgDraft.trim();
+    if (d) {
+      try {
+        localStorage.setItem("st_dg_key", d);
+      } catch (e) {
+      }
+      setDgKey(d);
+      dgFailedRef.current = false;
+      setDgDraft("");
+    }
+  };
+  const saveDgKey = () => {
+    const d = dgDraft.trim();
+    if (!d) return;
+    try {
+      localStorage.setItem("st_dg_key", d);
+    } catch (e) {
+    }
+    setDgKey(d);
+    dgFailedRef.current = false;
+    setDgDraft("");
+  };
+  const clearDgKey = () => {
+    try {
+      localStorage.removeItem("st_dg_key");
+    } catch (e) {
+    }
+    setDgKey("");
+    dgFailedRef.current = false;
   };
   const clearKey = () => {
     try {
@@ -886,6 +1098,20 @@ Produce the JSON analysis now.`
           if (e.key === "Enter") saveKey();
         },
         placeholder: "sk-ant-...",
+        autoComplete: "off",
+        spellCheck: false
+      }
+    ), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 13, lineHeight: 1.5, margin: "14px 0 6px" } }, "Optional: a Deepgram key (console.deepgram.com, $200 free credit) upgrades speech recognition \u2014 much better with an accent. Leave blank to use the browser's recognizer."), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "sel",
+        type: "password",
+        value: dgDraft,
+        onChange: (e) => setDgDraft(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") saveKey();
+        },
+        placeholder: "Deepgram key (optional)",
         autoComplete: "off",
         spellCheck: false
       }
@@ -1312,6 +1538,23 @@ Produce the JSON analysis now.`
     ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),
     /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Report corrections"),
     /* @__PURE__ */ React.createElement("select", { className: "sel", value: reportLangPref, onChange: (e) => setReportLangPref(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "auto" }, "Auto \u2014 English through A2, Spanish from B1"), /* @__PURE__ */ React.createElement("option", { value: "en" }, "Always English"), /* @__PURE__ */ React.createElement("option", { value: "es" }, "Always Spanish")),
+    /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Speech recognition"),
+    /* @__PURE__ */ React.createElement("p", { style: { color: dgKey ? T.teal : T.muted, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, dgKey ? "Deepgram Nova-3 (active)" : "Browser recognizer \u2014 add a Deepgram key for much better accuracy (console.deepgram.com, $200 free credit)."),
+    dgKey ? /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: clearDgKey }, "Remove Deepgram key") : /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "sel",
+        type: "password",
+        value: dgDraft,
+        onChange: (e) => setDgDraft(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") saveDgKey();
+        },
+        placeholder: "Deepgram key",
+        autoComplete: "off",
+        spellCheck: false
+      }
+    ), /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: saveDgKey, disabled: !dgDraft.trim() }, "Save Deepgram key")),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 16 }, onClick: clearKey }, "Change API key (ends the current session)"),
     /* @__PURE__ */ React.createElement("button", { className: "btnG", style: { marginTop: 10, width: "100%" }, onClick: () => setSettingsOpen(false) }, "Done")
   ));
