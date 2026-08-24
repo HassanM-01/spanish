@@ -1,0 +1,1608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spanish Speaking Trainer</title>
+<style>html, body { margin: 0; background: #12161C; }</style>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState, useEffect, useRef, useMemo } = React;
+const T = {
+  ink: "#12161C",
+  surface: "#1A2029",
+  line: "#2A323E",
+  text: "#E6E9EE",
+  muted: "#8A94A3",
+  amber: "#E8A33D",
+  teal: "#4FA8A0",
+  red: "#C4574B"
+};
+const FONT_HEAD = "'Archivo', system-ui, sans-serif";
+const FONT_BODY = "'IBM Plex Sans', system-ui, sans-serif";
+const FONT_MONO = "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace";
+const LEVELS = ["Pre-A1", "A1", "A2", "B1", "B2", "C1"];
+const LOW_LEVELS = ["Pre-A1", "A1", "A2"];
+const SPEEDS = [
+  { id: "despacio", label: "Despacio", rate: 0.8 },
+  { id: "normal", label: "Normal", rate: 1 },
+  { id: "rapido", label: "R\xE1pido", rate: 1.15 }
+];
+const SCENARIOS = [
+  {
+    id: "taqueria",
+    region: "Mexico",
+    title: "Taquer\xEDa",
+    desc: "Ordering at a taquer\xEDa in CDMX. The counter guy makes small talk.",
+    name: "Chuy",
+    gender: "m",
+    brief: "Eres Chuy, taquero de 45 a\xF1os en una taquer\xEDa de la colonia Narvarte, CDMX. Llevas veinte a\xF1os detr\xE1s del comal y le das pl\xE1tica a todo el que llega: preguntas qu\xE9 van a querer, recomiendas (el pastor es tu orgullo), y mientras preparas la orden haces conversaci\xF3n ligera \u2014 de d\xF3nde es el cliente, el clima, el fut. Registro informal, tuteas a todos, buen humor de mostrador."
+  },
+  {
+    id: "mercado",
+    region: "Mexico",
+    title: "Mercado",
+    desc: "Haggling at a market stall. The vendor is fast and jokes around.",
+    name: "Do\xF1a Lupe",
+    gender: "f",
+    brief: "Eres Do\xF1a Lupe, marchanta de 55 a\xF1os con un puesto de fruta y artesan\xEDas en un mercado de la CDMX. Hablas r\xE1pido, con gracia, y el regateo es tu teatro favorito: precio inicial alto, '\xBFa c\xF3mo lo quieres, marchante?', contraofertas, 'ay no, me est\xE1s matando', y al final siempre cierras el trato de buenas. Le echas broma al cliente y le preguntas cosas mientras negocian. Informal y calurosa."
+  },
+  {
+    id: "cita",
+    region: "Mexico",
+    title: "Cita",
+    desc: "First date in Roma Norte. Curious, but not easily impressed.",
+    name: "Valeria",
+    gender: "f",
+    brief: "Eres Valeria, 28 a\xF1os, dise\xF1adora, en una primera cita en un caf\xE9 de la Roma Norte, CDMX. Eres curiosa y directa: haces buenas preguntas, escuchas de verdad, y no te impresionas f\xE1cil. Si algo te parece interesante lo dices; si algo suena a frase hecha, lo picas con humor ligero. Quieres saber qui\xE9n es esta persona en serio. Tuteo, registro natural de chilanga."
+  },
+  {
+    id: "cantina",
+    region: "Mexico",
+    title: "Cantina",
+    desc: "Playful banter with friends-of-friends at a bar.",
+    name: "Beto",
+    gender: "m",
+    brief: "Eres Beto, 32 a\xF1os, en una cantina de Guadalajara con un grupo donde el usuario es amigo de un amigo. Ambiente relajado: cotorreo, vacile ligero sin groser\xEDas fuertes, brindis. Le preguntas de d\xF3nde conoce al grupo, qu\xE9 est\xE1 tomando, le sacas pl\xE1tica de m\xFAsica, fut y an\xE9cdotas. Si dice algo chistoso, lo celebras; si se pone serio, lo relajas."
+  },
+  {
+    id: "anfitrion",
+    region: "Mexico",
+    title: "Anfitri\xF3n",
+    desc: "Airbnb host in Oaxaca giving recommendations.",
+    name: "Do\xF1a Mari",
+    gender: "f",
+    brief: "Eres Do\xF1a Mari, 58 a\xF1os, anfitriona de un Airbnb en el centro de Oaxaca. Hospitalaria y orgullosa de tu ciudad: recomiendas comida (tlayudas, mole, el mezcal de tu compadre), mercados y pueblos cercanos, seg\xFAn lo que le guste al hu\xE9sped \u2014 por eso preguntas primero qu\xE9 busca. Empiezas de usted y te relajas al tuteo conforme agarran confianza. Trato c\xE1lido, de casa."
+  },
+  {
+    id: "taxi",
+    region: "Mexico",
+    title: "Taxi",
+    desc: "Negotiating a fare, then making conversation on the ride.",
+    name: "Ram\xF3n",
+    gender: "m",
+    brief: "Eres Ram\xF3n, 47 a\xF1os, taxista de sitio en M\xE9rida. Antes de arrancar negocias la tarifa con calma y buen humor \u2014 pides un poco alto, aceptas regateo razonable, cierras el trato. Ya en camino das pl\xE1tica: de d\xF3nde viene el pasajero, a qu\xE9 va, qu\xE9 le recomiendas de la ciudad. Conoces cada calle y tienes una opini\xF3n de todo. Informal, relajado."
+  },
+  {
+    id: "companero",
+    region: "Texas",
+    title: "Compa\xF1ero",
+    desc: "Spanish-speaking coworker over lunch.",
+    name: "Marisol",
+    gender: "f",
+    brief: "Eres Marisol, 35 a\xF1os, compa\xF1era de trabajo mexicana en una oficina de Houston. Est\xE1n comiendo juntos en la hora del lunch. Pl\xE1tica de trabajo ligera (sin tecnicismos), la familia, los planes del fin de semana, d\xF3nde comer bien por la zona. Amigable, informal, con la confianza de quien ya conoce al usuario de la oficina."
+  },
+  {
+    id: "gym",
+    region: "Texas",
+    title: "Gym",
+    desc: "Gym small talk between sets.",
+    name: "\xD3scar",
+    gender: "m",
+    brief: "Eres \xD3scar, 29 a\xF1os, regular del gym en Houston. Est\xE1n platicando entre sets: qu\xE9 entrena hoy el usuario, rutinas, ejercicios, progreso, si le prestas el rack. Frases cortas porque est\xE1n entrenando, con pausas naturales. Buena onda, algo competitivo en broma, te clavas si el otro sabe de fierros."
+  },
+  {
+    id: "trabajo",
+    region: "Texas",
+    title: "Trabajo",
+    desc: "Explaining what you do \u2014 software and AI \u2014 to a non-technical Spanish speaker.",
+    name: "Don Roberto",
+    gender: "m",
+    brief: "Eres Don Roberto, 60 a\xF1os, due\xF1o de una tienda de abarrotes en Houston, sin ning\xFAn conocimiento t\xE9cnico. El usuario te va a explicar a qu\xE9 se dedica (software, inteligencia artificial). Tienes curiosidad genuina pero todo te suena a magia: pides ejemplos sencillos, preguntas '\xBFy eso para qu\xE9 sirve?', '\xBFy eso c\xF3mo se come?', comparas con cosas de tu tienda y tu vida diaria. Si no entiendes, lo dices sin pena."
+  },
+  {
+    id: "vecino",
+    region: "Texas",
+    title: "Vecino",
+    desc: "Neighbor conversation \u2014 weather, weekend plans.",
+    name: "Do\xF1a Carmen",
+    gender: "f",
+    brief: "Eres Do\xF1a Carmen, 62 a\xF1os, vecina en un suburbio de Houston, platicando en la banqueta. Temas de vecinos: el calor\xF3n de Texas, el jard\xEDn, los planes del fin de semana, lo que anda pasando en la cuadra. C\xE1lida, un poquito metiche pero de buen coraz\xF3n, siempre acabas invitando algo de comer."
+  },
+  {
+    id: "taqueria-htx",
+    region: "Texas",
+    title: "Taquer\xEDa HTX",
+    desc: "Houston taquer\xEDa. Mexican-American register \u2014 code-switching happens.",
+    name: "Kike",
+    gender: "m",
+    spanglish: true,
+    brief: "Eres Kike, 26 a\xF1os, en el mostrador de una taquer\xEDa del norte de Houston. Mexicoamericano: tu espa\xF1ol es de Texas, con pr\xE9stamos naturales del ingl\xE9s \u2014 '\xBFpa' aqu\xED o pa' llevar?', la troca, el lonche, parquear \u2014 y de repente una palabrita en ingl\xE9s, pero la conversaci\xF3n va en espa\xF1ol. R\xE1pido, relajado, bromista, con el ritmo de un mostrador con fila."
+  },
+  {
+    id: "libre",
+    region: "Open",
+    title: "Libre",
+    desc: "Free conversation. No scenario, no roleplay \u2014 just talk.",
+    name: "Andr\xE9s",
+    gender: "m",
+    brief: "Eres Andr\xE9s, 30 a\xF1os, mexicano, pl\xE1tico y relajado. No hay escenario ni roleplay: es una conversaci\xF3n libre entre dos conocidos que se caen bien. Sigues los temas que saque el usuario, compartes opiniones y experiencias propias (viajes, comida, trabajo, lo que salga) y haces preguntas con curiosidad real."
+  }
+];
+const REGIONS = ["Mexico", "Texas", "Open"];
+const LEVEL_RULES = {
+  "Pre-A1": "Speak only in the present tense, with very high-frequency vocabulary and sentences of eight words or fewer. Repeat and rephrase patiently. Two to three very short sentences per turn, no more.",
+  A1: "Stick to the present tense (near-future with 'ir a' is fine), high-frequency vocabulary, short sentences, patient repetition. Two to three short sentences per turn.",
+  A2: "Past tenses can appear, along with some common idiom, but keep the pace slow and the sentences simple. Two to four sentences per turn.",
+  B1: "Natural pace. Subjunctive and Mexican slang are in play, and you can tease. Three to five sentences per turn.",
+  B2: "Full native speed: sarcasm, cultural references, no accommodation. Three to five sentences per turn.",
+  C1: "Full native speed: sarcasm, wordplay, cultural references, zero accommodation. Three to six sentences per turn."
+};
+const SCENE_OPEN = "(La escena empieza ahora. Da tu primera l\xEDnea en tu personaje para abrir la situaci\xF3n con el usuario. Responde en el formato JSON indicado.)";
+function buildCharacterSystem(scenario, level, speedId, briefing) {
+  const speedNote = speedId === "despacio" ? "Speaking-speed setting: DESPACIO. Go even slower and plainer than your level guidance suggests \u2014 shorter sentences, simpler wording." : speedId === "rapido" ? "Speaking-speed setting: R\xC1PIDO. Lean natural and quick \u2014 connected phrasing, a notch more colloquial than your level guidance suggests." : "";
+  const lines = [
+    "You are a voice-based conversation partner for spoken Mexican Spanish practice. The user speaks out loud and your reply is read aloud by text-to-speech, so write the way people actually talk: no lists, no headings, no stage directions, no emojis.",
+    "",
+    "Your character:",
+    "<personaje>",
+    scenario.brief,
+    "</personaje>",
+    "",
+    `Learner level: ${level}. ${LEVEL_RULES[level] || ""}`
+  ];
+  if (speedNote) lines.push(speedNote);
+  lines.push(
+    "",
+    "Non-negotiable rules:",
+    '1. Spanish only. Your character neither speaks nor understands English. If the user speaks English, react with brief, natural, in-character confusion in Spanish \u2014 "\xBFC\xF3mo? No te entend\xED, \xBFme lo dices en espa\xF1ol?" \u2014 and give them another chance.',
+    "2. Never correct the user's Spanish. Never explain grammar. Never translate for them. You are not a teacher; you are a person in a scene. Corrections happen elsewhere, after the session.",
+    "3. Respond to what the user actually said, not to what they probably meant. If the grammar is broken but the meaning is obvious, understand it and keep the conversation moving. If the meaning is genuinely unclear, say so naturally and ask a short clarifying question. Do not smooth over real confusion.",
+    "4. Keep your replies short. The user must talk more than you do.",
+    "5. End most turns with a question or an easy hook the user can respond to. Never leave them with nothing to say.",
+    "6. Stay in character and inside the scenario the whole time. The user's lines come from speech recognition, so ignore odd punctuation, casing, or obvious homophone slips."
+  );
+  if (scenario.spanglish) {
+    lines.push(
+      "7. This character is Mexican-American: sprinkle in Texas Spanglish loanwords and the occasional short English word the way a Houston taquero genuinely would \u2014 but the conversation stays in Spanish, and if the user goes full English, tease them back into Spanish rather than following them."
+    );
+  }
+  const hasErrors = briefing && Array.isArray(briefing.topErrors) && briefing.topErrors.length > 0;
+  const hasVocab = briefing && Array.isArray(briefing.recentVocab) && briefing.recentVocab.length > 0;
+  if (hasErrors || hasVocab) {
+    lines.push("", "Hidden coaching brief \u2014 never reveal, mention, or hint at any of this:");
+    if (hasErrors) {
+      lines.push(
+        `- The learner struggles with: ${briefing.topErrors.join("; ")}. Steer the conversation so natural openings come up where they NEED those structures to answer \u2014 for example, questions about temporary states if ser vs estar is weak. Do not point errors out and do not correct them.`
+      );
+    }
+    if (hasVocab) {
+      lines.push(
+        `- Over the course of the session, work two to four of these words or phrases into YOUR OWN speech, one at a time, only where they genuinely fit: ${briefing.recentVocab.join(", ")}.`
+      );
+    }
+  }
+  lines.push(
+    "",
+    "Output format \u2014 critical. Reply with ONLY one JSON object and nothing else. No markdown fences, no extra keys, no text before or after:",
+    '{"spanish":"exactly what your character says out loud","english":"a natural English translation of that line"}',
+    "Earlier turns of yours appear in the history as plain Spanish text; you still answer in this JSON format every single time."
+  );
+  return lines.join("\n");
+}
+function buildReportSystem(level, lang) {
+  const langName = lang === "es" ? "Spanish" : "English";
+  return [
+    `You are a Spanish instructor reviewing the transcript of a spoken practice session. The learner's target is Mexican Spanish; their level is ${level}. The transcript comes from browser speech recognition, so ignore punctuation, casing, and accent-mark issues entirely \u2014 judge only real spoken-language patterns.`,
+    "",
+    'Lines beginning "USER:" are the learner. Lines beginning "CHARACTER:" are the AI partner. Any USER line marked [EXCLUDED] was flagged by the learner as a speech-recognition mistranscription: ignore it completely and never cite it or draw conclusions from it.',
+    "",
+    "Respond with ONLY one JSON object \u2014 no markdown fences, no text before or after \u2014 in exactly this shape:",
+    '{"errors":[{"pattern":"","youSaid":"","correct":"","explanation":"","prompt":""}],"vocabGaps":[{"spanish":"","english":"","note":""}],"wentWell":[""]}',
+    "",
+    "errors \u2014 at most 5, ranked by how much each pattern impeded communication, NOT by frequency. Only recurring or systematic patterns; skip one-off slips entirely. Fields:",
+    `- pattern: a stable, reusable label for the underlying rule, phrased so the same error in a future session would produce the identical string. Good: "ser vs estar with temporary states", "preterite vs imperfect for background actions", "omitting personal 'a'". Never quote the learner inside pattern.`,
+    "- youSaid: the learner's actual words, shortest relevant fragment.",
+    "- correct: the natural Mexican Spanish version.",
+    `- explanation: one line explaining the rule, written in ${langName}.`,
+    `- prompt: a short ENGLISH instruction that would elicit the correct Spanish \u2014 the front of a production flashcard, e.g. "Say you're tired right now". Always English, regardless of the language setting above.`,
+    "",
+    'vocabGaps \u2014 words or phrases the learner reached for and could not produce. Detect them from: English words dropped mid-sentence, circumlocution ("la cosa para..."), explicit asks ("\xBFc\xF3mo se dice...?"), and abandoned sentences. Fields:',
+    "- spanish: the natural Mexican Spanish for what they were trying to say.",
+    "- english: its English meaning.",
+    `- note: one line of usage guidance in ${langName}; you may mention what they attempted.`,
+    "Include every genuine gap you find; do not pad with vocabulary they never reached for.",
+    "",
+    "wentWell \u2014 two or three specific constructions the learner actually produced correctly. Name the construction and quote their words. No generic encouragement, no filler.",
+    "",
+    "If the learner produced too little Spanish to analyze, return empty errors and vocabGaps arrays and say so briefly in wentWell.",
+    "",
+    "Be concise. Keep the entire JSON under 600 tokens."
+  ].join("\n");
+}
+function buildTranscript(msgs) {
+  return msgs.map(
+    (m) => m.role === "user" ? m.flagged ? "USER: [EXCLUDED \u2014 the learner flagged this line as a speech-recognition mistranscription; ignore it entirely]" : `USER: ${m.text}` : `CHARACTER: ${m.spanish}`
+  ).join("\n");
+}
+function readKey() {
+  try {
+    return localStorage.getItem("st_api_key") || "";
+  } catch (e) {
+    return "";
+  }
+}
+async function callClaude(system, messages) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": readKey(),
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1e3, system, messages })
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("auth");
+  if (!res.ok) throw new Error("API " + res.status);
+  const data = await res.json();
+  return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+}
+function toApi(msgs) {
+  const arr = [{ role: "user", content: SCENE_OPEN }];
+  for (const m of msgs) {
+    arr.push(m.role === "user" ? { role: "user", content: m.text } : { role: "assistant", content: m.spanish });
+  }
+  return arr;
+}
+function stripFences(raw) {
+  return String(raw || "").replace(/```json|```/gi, "").trim();
+}
+function parseReply(raw) {
+  const cleaned = stripFences(raw);
+  const s = cleaned.indexOf("{");
+  const e = cleaned.lastIndexOf("}");
+  if (s !== -1 && e > s) {
+    try {
+      const o = JSON.parse(cleaned.slice(s, e + 1));
+      if (o && typeof o.spanish === "string" && o.spanish.trim()) {
+        return { spanish: o.spanish.trim(), english: typeof o.english === "string" ? o.english.trim() : null };
+      }
+    } catch (err) {
+    }
+  }
+  return { spanish: cleaned, english: null };
+}
+function parseReport(raw) {
+  const cleaned = stripFences(raw);
+  const s = cleaned.indexOf("{");
+  const e = cleaned.lastIndexOf("}");
+  if (s === -1 || e <= s) throw new Error("no json in report");
+  const o = JSON.parse(cleaned.slice(s, e + 1));
+  const str = (v) => typeof v === "string" ? v : v == null ? "" : String(v);
+  const errors = Array.isArray(o.errors) ? o.errors.slice(0, 5).map((x) => ({
+    pattern: str(x.pattern),
+    youSaid: str(x.youSaid),
+    correct: str(x.correct),
+    explanation: str(x.explanation),
+    prompt: str(x.prompt)
+  })).filter((x) => x.pattern) : [];
+  const vocabGaps = Array.isArray(o.vocabGaps) ? o.vocabGaps.map((x) => ({ spanish: str(x.spanish), english: str(x.english), note: str(x.note) })).filter((x) => x.spanish) : [];
+  const wentWell = Array.isArray(o.wentWell) ? o.wentWell.map(str).filter(Boolean) : [];
+  return { errors, vocabGaps, wentWell };
+}
+const cls = (...a) => a.filter(Boolean).join(" ");
+const wordCount = (s) => {
+  const t = String(s || "").trim();
+  return t ? t.split(/\s+/).length : 0;
+};
+const localDate = () => {
+  const d = /* @__PURE__ */ new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const MicIcon = ({ size = 28, color = T.muted }) => /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("rect", { x: "9", y: "3", width: "6", height: "11", rx: "3", fill: color }), /* @__PURE__ */ React.createElement("path", { d: "M5 11a7 7 0 0 0 14 0", stroke: color, strokeWidth: "2", strokeLinecap: "round", fill: "none" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "18.5", x2: "12", y2: "21.5", stroke: color, strokeWidth: "2", strokeLinecap: "round" }));
+const SpeakerIcon = ({ size = 13, color = "currentColor" }) => /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true", style: { verticalAlign: "-2px" } }, /* @__PURE__ */ React.createElement("path", { d: "M4 9v6h4l5 4V5L8 9H4z", fill: color }), /* @__PURE__ */ React.createElement("path", { d: "M16.5 9a4.5 4.5 0 0 1 0 6", stroke: color, strokeWidth: "2", strokeLinecap: "round", fill: "none" }));
+function SpanishSpeakingTrainer() {
+  const supported = useMemo(
+    () => typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+    []
+  );
+  const prefersReduced = useMemo(
+    () => typeof window !== "undefined" && !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches),
+    []
+  );
+  const [phase, setPhase] = useState("setup");
+  const [level, setLevel] = useState("A1");
+  const [briefingText, setBriefingText] = useState("");
+  const [briefing, setBriefing] = useState(null);
+  const [briefErr, setBriefErr] = useState(null);
+  const [scenario, setScenario] = useState(null);
+  const [speed, setSpeed] = useState("despacio");
+  const [messages, setMessages] = useState([]);
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [pending, setPending] = useState(null);
+  const [awaitingReply, setAwaitingReply] = useState(false);
+  const [replyError, setReplyError] = useState(false);
+  const [sttNote, setSttNote] = useState(null);
+  const [voices, setVoices] = useState([]);
+  const [voiceURI, setVoiceURI] = useState(null);
+  const [ttsWarn, setTtsWarn] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [reportLangPref, setReportLangPref] = useState("auto");
+  const [stats, setStats] = useState(null);
+  const [report, setReport] = useState(null);
+  const [reportError, setReportError] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFail, setCopyFail] = useState(false);
+  const [rawOpen, setRawOpen] = useState(false);
+  const [apiKey, setApiKey] = useState(() => readKey());
+  const [keyDraft, setKeyDraft] = useState("");
+  const [dgKey, setDgKey] = useState(() => {
+    try {
+      return localStorage.getItem("st_dg_key") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [dgDraft, setDgDraft] = useState("");
+  const idRef = useRef(0);
+  const messagesRef = useRef([]);
+  const phaseRef = useRef(phase);
+  const awaitingRef = useRef(false);
+  const pendingRef = useRef(null);
+  const replyErrorRef = useRef(false);
+  const listeningRef = useRef(false);
+  const speedRef = useRef(speed);
+  const voicesRef = useRef([]);
+  const voiceURIRef = useRef(null);
+  const spaceHeldRef = useRef(false);
+  const finalRef = useRef("");
+  const abortedRef = useRef(false);
+  const recogRef = useRef(null);
+  const streamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const rafRef = useRef(null);
+  const ringRef = useRef(null);
+  const pendingTimerRef = useRef(null);
+  const dgKeyRef = useRef("");
+  const dgFailedRef = useRef(false);
+  const wsRef = useRef(null);
+  const mediaRecRef = useRef(null);
+  const dgStreamRef = useRef(null);
+  const dgStopTimerRef = useRef(null);
+  const sendPendingRef = useRef(() => {
+  });
+  const sessionStartRef = useRef(null);
+  const lastLangRef = useRef("en");
+  const endRef = useRef(null);
+  useEffect(() => {
+    phaseRef.current = phase;
+    awaitingRef.current = awaitingReply;
+    pendingRef.current = pending;
+    replyErrorRef.current = replyError;
+    speedRef.current = speed;
+    voicesRef.current = voices;
+    voiceURIRef.current = voiceURI;
+    dgKeyRef.current = dgKey;
+  });
+  const setMsgs = (next) => {
+    messagesRef.current = next;
+    setMessages(next);
+  };
+  useEffect(() => {
+    const t = briefingText.trim();
+    if (!t) {
+      setBriefing(null);
+      setBriefErr(null);
+      return;
+    }
+    try {
+      const o = JSON.parse(stripFences(t));
+      const b = {
+        totalHours: typeof o.totalHours === "number" ? o.totalHours : null,
+        level: LEVELS.includes(o.level) ? o.level : null,
+        sessionNumber: typeof o.sessionNumber === "number" ? o.sessionNumber : null,
+        topErrors: Array.isArray(o.topErrors) ? o.topErrors.filter((x) => typeof x === "string").slice(0, 5) : [],
+        recentVocab: Array.isArray(o.recentVocab) ? o.recentVocab.filter((x) => typeof x === "string").slice(0, 8) : []
+      };
+      setBriefing(b);
+      setBriefErr(null);
+      if (b.level) setLevel(b.level);
+    } catch (e) {
+      setBriefing(null);
+      setBriefErr("Couldn't parse that \u2014 paste the JSON exactly as the Dashboard copied it.");
+    }
+  }, [briefingText]);
+  useEffect(() => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+    if (!synth) return;
+    const load = () => setVoices(synth.getVoices() || []);
+    load();
+    synth.addEventListener && synth.addEventListener("voiceschanged", load);
+    return () => {
+      synth.removeEventListener && synth.removeEventListener("voiceschanged", load);
+    };
+  }, []);
+  const esVoices = useMemo(
+    () => voices.filter((v) => (v.lang || "").toLowerCase().startsWith("es")),
+    [voices]
+  );
+  useEffect(() => {
+    if (voiceURI || !voices.length) return;
+    if (!esVoices.length) {
+      setTtsWarn(true);
+      return;
+    }
+    const mx = esVoices.find(
+      (v) => (v.lang || "").toLowerCase().includes("mx") || /mexic/i.test(v.name || "")
+    );
+    setVoiceURI((mx || esVoices[0]).voiceURI);
+    setTtsWarn(false);
+  }, [voices, esVoices, voiceURI]);
+  const speak = (text) => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+    if (!synth || !text) return;
+    try {
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "es-MX";
+      const v = voicesRef.current.find((x) => x.voiceURI === voiceURIRef.current);
+      if (v) u.voice = v;
+      const sp = SPEEDS.find((s) => s.id === speedRef.current);
+      u.rate = sp ? sp.rate : 1;
+      synth.speak(u);
+    } catch (e) {
+    }
+  };
+  const startMeter = async (existingStream) => {
+    if (prefersReduced) return;
+    try {
+      const stream = existingStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!listeningRef.current) {
+        if (!existingStream) stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 512;
+      src.connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount);
+      const loop = () => {
+        an.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        const lvl = Math.min(1, rms * 4.5);
+        if (ringRef.current) {
+          ringRef.current.setAttribute("r", String(58 + lvl * 24));
+          ringRef.current.setAttribute("stroke-opacity", String(0.2 + lvl * 0.7));
+        }
+        rafRef.current = requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) {
+    }
+  };
+  const stopMeter = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close();
+      } catch (e) {
+      }
+      audioCtxRef.current = null;
+    }
+    if (ringRef.current) {
+      ringRef.current.setAttribute("r", "58");
+      ringRef.current.setAttribute("stroke-opacity", "0");
+    }
+  };
+  const startWebSpeech = () => {
+    if (phaseRef.current !== "live" || listeningRef.current || awaitingRef.current || pendingRef.current || replyErrorRef.current)
+      return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setSttNote(null);
+    const r = new SR();
+    r.lang = "es-MX";
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r._stopRequested = false;
+    r._lastRestart = 0;
+    finalRef.current = "";
+    abortedRef.current = false;
+    r.onresult = (e) => {
+      let interimText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalRef.current += res[0].transcript;
+        else interimText += res[0].transcript;
+      }
+      setInterim((finalRef.current + " " + interimText).trim());
+    };
+    r.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setSttNote("Mic access was blocked \u2014 allow the microphone and try again.");
+      } else if (e.error && e.error !== "no-speech" && e.error !== "aborted") {
+        setSttNote("The mic hiccuped \u2014 press it and try again.");
+      }
+    };
+    r.onend = () => {
+      if (!abortedRef.current && !r._stopRequested && listeningRef.current) {
+        const now = Date.now();
+        if (now - r._lastRestart > 400) {
+          r._lastRestart = now;
+          try {
+            r.start();
+            return;
+          } catch (err) {
+          }
+        }
+      }
+      listeningRef.current = false;
+      setListening(false);
+      stopMeter();
+      const t = finalRef.current.trim();
+      finalRef.current = "";
+      setInterim("");
+      if (abortedRef.current) {
+        abortedRef.current = false;
+        return;
+      }
+      if (t) queuePending(t);
+      else setSttNote((n) => n || "Didn't catch anything \u2014 try again.");
+    };
+    recogRef.current = r;
+    listeningRef.current = true;
+    setListening(true);
+    startMeter();
+    try {
+      r.start();
+    } catch (e) {
+      listeningRef.current = false;
+      setListening(false);
+      stopMeter();
+    }
+  };
+  const finishDeepgram = () => {
+    if (dgStopTimerRef.current) {
+      clearTimeout(dgStopTimerRef.current);
+      dgStopTimerRef.current = null;
+    }
+    try {
+      dgStreamRef.current && dgStreamRef.current.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+    }
+    wsRef.current = null;
+    mediaRecRef.current = null;
+    dgStreamRef.current = null;
+    listeningRef.current = false;
+    setListening(false);
+    stopMeter();
+    const t = finalRef.current.trim();
+    finalRef.current = "";
+    setInterim("");
+    if (abortedRef.current) {
+      abortedRef.current = false;
+      return;
+    }
+    if (t) queuePending(t);
+    else setSttNote((n) => n || "Didn't catch anything \u2014 try again.");
+  };
+  const dgFail = (stream) => {
+    dgFailedRef.current = true;
+    try {
+      stream && stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {
+      }
+      wsRef.current = null;
+    }
+    mediaRecRef.current = null;
+    dgStreamRef.current = null;
+    listeningRef.current = false;
+    setListening(false);
+    stopMeter();
+    setSttNote("Deepgram unavailable \u2014 switched to the browser recognizer.");
+    startWebSpeech();
+  };
+  const startDeepgram = async () => {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setSttNote(null);
+    finalRef.current = "";
+    abortedRef.current = false;
+    listeningRef.current = true;
+    setListening(true);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      listeningRef.current = false;
+      setListening(false);
+      setSttNote("Mic access was blocked \u2014 allow the microphone and try again.");
+      return;
+    }
+    if (!listeningRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    dgStreamRef.current = stream;
+    startMeter(stream);
+    let ws;
+    try {
+      ws = new WebSocket(
+        "wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&interim_results=true&smart_format=true&punctuate=true",
+        ["token", dgKeyRef.current]
+      );
+    } catch (e) {
+      dgFail(stream);
+      return;
+    }
+    wsRef.current = ws;
+    ws._gotTranscript = false;
+    ws.onopen = () => {
+      if (wsRef.current !== ws) return;
+      let mr;
+      try {
+        const mime = window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+        mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch (e) {
+        dgFail(stream);
+        return;
+      }
+      mediaRecRef.current = mr;
+      mr.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0 && ws.readyState === 1) ws.send(ev.data);
+      };
+      mr.start(250);
+    };
+    ws.onmessage = (ev) => {
+      if (wsRef.current !== ws) return;
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      const alt = msg && msg.channel && msg.channel.alternatives && msg.channel.alternatives[0];
+      if (!alt) return;
+      const t = (alt.transcript || "").trim();
+      if (!t) return;
+      ws._gotTranscript = true;
+      if (msg.is_final) {
+        finalRef.current = (finalRef.current + " " + t).trim() + " ";
+        setInterim(finalRef.current.trim());
+      } else {
+        setInterim((finalRef.current + " " + t).trim());
+      }
+    };
+    ws.onerror = () => {
+      if (wsRef.current !== ws) return;
+      if (!ws._gotTranscript) {
+        dgFailedRef.current = true;
+        setSttNote("Deepgram connection failed \u2014 check the key in Settings. Using the browser recognizer for now.");
+      }
+    };
+    ws.onclose = () => {
+      if (wsRef.current !== ws) return;
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      finishDeepgram();
+    };
+  };
+  const startListening = () => {
+    if (phaseRef.current !== "live" || listeningRef.current || awaitingRef.current || pendingRef.current || replyErrorRef.current)
+      return;
+    if (dgKeyRef.current && !dgFailedRef.current) startDeepgram();
+    else startWebSpeech();
+  };
+  const stopListening = () => {
+    if (wsRef.current) {
+      const ws = wsRef.current;
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      try {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "CloseStream" }));
+      } catch (e) {
+      }
+      if (!dgStopTimerRef.current)
+        dgStopTimerRef.current = setTimeout(() => {
+          try {
+            ws.close();
+          } catch (e) {
+          }
+        }, 1200);
+      return;
+    }
+    try {
+      if (recogRef.current) {
+        recogRef.current._stopRequested = true;
+        recogRef.current.stop();
+      }
+    } catch (e) {
+    }
+  };
+  const cancelListening = () => {
+    abortedRef.current = true;
+    if (wsRef.current) {
+      try {
+        mediaRecRef.current && mediaRecRef.current.stop();
+      } catch (e) {
+      }
+      try {
+        wsRef.current.close();
+      } catch (e) {
+      }
+      return;
+    }
+    try {
+      recogRef.current && recogRef.current.abort();
+    } catch (e) {
+    }
+  };
+  const queuePending = (text) => {
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    setSttNote(null);
+    setPending({ text, key: Date.now() });
+  };
+  const redoPending = () => {
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    pendingRef.current = null;
+    setPending(null);
+    startListening();
+  };
+  const sendPending = () => {
+    const p = pendingRef.current;
+    if (!p) return;
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    setPending(null);
+    sendUserTurn(p.text);
+  };
+  const cancelPending = () => {
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    setPending(null);
+  };
+  useEffect(() => {
+    sendPendingRef.current = sendPending;
+  });
+  const systemPrompt = useMemo(
+    () => scenario ? buildCharacterSystem(scenario, level, speed, briefing) : "",
+    [scenario, level, speed, briefing]
+  );
+  const fetchCharacterReply = async (systemOverride) => {
+    setAwaitingReply(true);
+    awaitingRef.current = true;
+    setReplyError(false);
+    try {
+      const raw = await callClaude(systemOverride || systemPrompt, toApi(messagesRef.current));
+      const rep = parseReply(raw);
+      const next = [
+        ...messagesRef.current,
+        { id: ++idRef.current, role: "assistant", spanish: rep.spanish, english: rep.english, showEn: false }
+      ];
+      setMsgs(next);
+      setAwaitingReply(false);
+      awaitingRef.current = false;
+      speak(rep.spanish);
+    } catch (e) {
+      setAwaitingReply(false);
+      awaitingRef.current = false;
+      setReplyError(true);
+      replyErrorRef.current = true;
+    }
+  };
+  const sendUserTurn = (text) => {
+    const next = [...messagesRef.current, { id: ++idRef.current, role: "user", text, flagged: false }];
+    setMsgs(next);
+    fetchCharacterReply();
+  };
+  const discardFailedTurn = () => {
+    const msgs = messagesRef.current;
+    if (msgs.length && msgs[msgs.length - 1].role === "user") {
+      setMsgs(msgs.slice(0, -1));
+    }
+    setReplyError(false);
+  };
+  const toggleFlag = (id) => {
+    setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, flagged: !m.flagged } : m));
+  };
+  const toggleEn = (id) => {
+    setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, showEn: !m.showEn } : m));
+  };
+  const startScenario = (s) => {
+    const spd = LOW_LEVELS.includes(level) ? "despacio" : "normal";
+    setScenario(s);
+    setSpeed(spd);
+    speedRef.current = spd;
+    setMsgs([]);
+    setPending(null);
+    setReplyError(false);
+    setSttNote(null);
+    setReport(null);
+    setReportError(false);
+    setStats(null);
+    setCopied(false);
+    setCopyFail(false);
+    setRawOpen(false);
+    sessionStartRef.current = Date.now();
+    setPhase("live");
+    phaseRef.current = "live";
+    fetchCharacterReply(buildCharacterSystem(s, level, spd, briefing));
+  };
+  const effectiveReportLang = () => reportLangPref === "auto" ? LOW_LEVELS.includes(level) ? "en" : "es" : reportLangPref;
+  const runAnalysis = async (lang) => {
+    lastLangRef.current = lang;
+    setReportError(false);
+    try {
+      const transcript = buildTranscript(messagesRef.current);
+      const raw = await callClaude(buildReportSystem(level, lang), [
+        {
+          role: "user",
+          content: `Scenario: ${scenario ? scenario.title : "free conversation"}. Learner level: ${level}.
+
+TRANSCRIPT
+${transcript}
+
+Produce the JSON analysis now.`
+        }
+      ]);
+      const rep = parseReport(raw);
+      setReport({ ...rep, lang });
+      setPhase("report");
+    } catch (e) {
+      setReport(null);
+      setReportError(true);
+      setPhase("report");
+    }
+  };
+  const endSession = () => {
+    if (awaitingRef.current) return;
+    cancelListening();
+    cancelPending();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    const userMsgs = messagesRef.current.filter((m) => m.role === "user");
+    setStats({
+      turns: userMsgs.length,
+      words: userMsgs.reduce((a, m) => a + wordCount(m.text), 0),
+      min: Math.max(1, Math.round((Date.now() - (sessionStartRef.current || Date.now())) / 6e4))
+    });
+    setPhase("analyzing");
+    phaseRef.current = "analyzing";
+    runAnalysis(effectiveReportLang());
+  };
+  const resetToSetup = () => {
+    cancelListening();
+    cancelPending();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setMsgs([]);
+    setScenario(null);
+    setReport(null);
+    setReportError(false);
+    setStats(null);
+    setReplyError(false);
+    setAwaitingReply(false);
+    setSttNote(null);
+    setCopied(false);
+    setCopyFail(false);
+    setRawOpen(false);
+    setPhase("setup");
+  };
+  const buildExport = () => {
+    const errors = (report && report.errors || []).map((e) => ({
+      pattern: e.pattern,
+      youSaid: e.youSaid,
+      correct: e.correct,
+      prompt: e.prompt
+    }));
+    const vocabGaps = (report && report.vocabGaps || []).map((g) => ({
+      spanish: g.spanish,
+      english: g.english,
+      note: g.note
+    }));
+    const out = { sessionDate: localDate() };
+    if (briefing && typeof briefing.sessionNumber === "number") out.sessionNumber = briefing.sessionNumber + 1;
+    out.level = level;
+    out.scenario = scenario ? scenario.id : "libre";
+    out.durationMinutes = stats ? stats.min : 0;
+    out.turnCount = stats ? stats.turns : 0;
+    out.errors = errors;
+    out.vocabGaps = vocabGaps;
+    return out;
+  };
+  const exportJson = useMemo(
+    () => report && stats ? JSON.stringify(buildExport(), null, 2) : "",
+    [report, stats, briefing, level, scenario]
+  );
+  const copyExport = async () => {
+    try {
+      await navigator.clipboard.writeText(exportJson);
+      setCopied(true);
+      setCopyFail(false);
+      setTimeout(() => setCopied(false), 2e3);
+    } catch (e) {
+      setCopyFail(true);
+      setRawOpen(true);
+    }
+  };
+  useEffect(() => {
+    const down = (e) => {
+      const tag = (e.target && e.target.tagName || "").toUpperCase();
+      if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+      if (e.code === "Space") {
+        if (phaseRef.current !== "live") return;
+        e.preventDefault();
+        if (e.repeat) return;
+        if (pendingRef.current && !awaitingRef.current && !replyErrorRef.current) {
+          spaceHeldRef.current = true;
+          redoPending();
+        } else if (!listeningRef.current && !pendingRef.current && !awaitingRef.current && !replyErrorRef.current) {
+          spaceHeldRef.current = true;
+          startListening();
+        }
+      } else if (e.key === "Enter") {
+        if (pendingRef.current) {
+          e.preventDefault();
+          sendPending();
+        }
+      } else if (e.key === "Escape") {
+        if (pendingRef.current) cancelPending();
+        else if (listeningRef.current) cancelListening();
+      }
+    };
+    const up = (e) => {
+      if (e.code === "Space" && spaceHeldRef.current) {
+        spaceHeldRef.current = false;
+        stopListening();
+      }
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  });
+  useEffect(() => {
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth" });
+  }, [messages, interim, pending, awaitingReply, replyError]);
+  useEffect(() => {
+    return () => {
+      try {
+        recogRef.current && recogRef.current.abort();
+      } catch (e) {
+      }
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+      stopMeter();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+    };
+  }, []);
+  const pageStyle = { minHeight: "100vh", background: T.ink, color: T.text, fontFamily: FONT_BODY };
+  const labelStyle = {
+    display: "block",
+    fontFamily: FONT_MONO,
+    fontSize: 11,
+    letterSpacing: "0.1em",
+    color: T.muted,
+    marginBottom: 7,
+    textTransform: "uppercase"
+  };
+  const kbdStyle = {
+    fontFamily: FONT_MONO,
+    fontSize: 11,
+    background: T.surface,
+    border: `1px solid ${T.line}`,
+    borderRadius: 4,
+    padding: "1px 5px"
+  };
+  const secHead = { fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 16, letterSpacing: "0.01em", margin: "0 0 12px", color: T.text };
+  const emptyLine = { color: T.muted, fontSize: 13.5, margin: 0 };
+  const userTurns = messages.filter((m) => m.role === "user").length;
+  if (!supported) {
+    return /* @__PURE__ */ React.createElement("div", { style: pageStyle }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 540, margin: "16vh auto 0", padding: "0 20px" } }, /* @__PURE__ */ React.createElement("div", { style: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "28px 26px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONT_MONO, fontSize: 11, letterSpacing: "0.12em", color: T.amber, marginBottom: 10 } }, "BROWSER NOT SUPPORTED"), /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: FONT_HEAD, fontSize: 20, fontWeight: 600, margin: "0 0 10px", color: T.text } }, "This trainer needs a browser that can listen."), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 14, lineHeight: 1.6, margin: 0 } }, "Speech recognition (the Web Speech API) currently ships in", " ", /* @__PURE__ */ React.createElement("strong", { style: { color: T.text } }, "Chrome"), " and ", /* @__PURE__ */ React.createElement("strong", { style: { color: T.text } }, "Edge"), ", on desktop or Android. Open this artifact in one of those to practice \u2014 there is no typing fallback, because typing is not speaking."))));
+  }
+  const saveKey = () => {
+    const k = keyDraft.trim();
+    if (!k) return;
+    try {
+      localStorage.setItem("st_api_key", k);
+    } catch (e) {
+    }
+    setApiKey(k);
+    setKeyDraft("");
+    const d = dgDraft.trim();
+    if (d) {
+      try {
+        localStorage.setItem("st_dg_key", d);
+      } catch (e) {
+      }
+      setDgKey(d);
+      dgFailedRef.current = false;
+      setDgDraft("");
+    }
+  };
+  const saveDgKey = () => {
+    const d = dgDraft.trim();
+    if (!d) return;
+    try {
+      localStorage.setItem("st_dg_key", d);
+    } catch (e) {
+    }
+    setDgKey(d);
+    dgFailedRef.current = false;
+    setDgDraft("");
+  };
+  const clearDgKey = () => {
+    try {
+      localStorage.removeItem("st_dg_key");
+    } catch (e) {
+    }
+    setDgKey("");
+    dgFailedRef.current = false;
+  };
+  const clearKey = () => {
+    try {
+      localStorage.removeItem("st_api_key");
+    } catch (e) {
+    }
+    setSettingsOpen(false);
+    resetToSetup();
+    setApiKey("");
+  };
+  if (!apiKey) {
+    return /* @__PURE__ */ React.createElement("div", { style: pageStyle }, /* @__PURE__ */ React.createElement("style", null, CSS), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560, margin: "14vh auto 0", padding: "0 20px" } }, /* @__PURE__ */ React.createElement("div", { style: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "28px 26px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONT_MONO, fontSize: 11, letterSpacing: "0.12em", color: T.amber, marginBottom: 10 } }, "ONE-TIME SETUP"), /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: FONT_HEAD, fontSize: 21, fontWeight: 600, margin: "0 0 10px" } }, "Spanish Speaking Trainer"), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 14, lineHeight: 1.6, margin: "0 0 14px" } }, "This standalone build talks to the Anthropic API directly from your browser, so it needs your API key (from console.anthropic.com). The key is stored only in this browser and sent only to api.anthropic.com; a typical session costs cents."), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "sel",
+        type: "password",
+        value: keyDraft,
+        onChange: (e) => setKeyDraft(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") saveKey();
+        },
+        placeholder: "sk-ant-...",
+        autoComplete: "off",
+        spellCheck: false
+      }
+    ), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 13, lineHeight: 1.5, margin: "14px 0 6px" } }, "Optional: a Deepgram key (console.deepgram.com, $200 free credit) upgrades speech recognition \u2014 much better with an accent. Leave blank to use the browser's recognizer."), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "sel",
+        type: "password",
+        value: dgDraft,
+        onChange: (e) => setDgDraft(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") saveKey();
+        },
+        placeholder: "Deepgram key (optional)",
+        autoComplete: "off",
+        spellCheck: false
+      }
+    ), /* @__PURE__ */ React.createElement("button", { className: "btnA", style: { marginTop: 12 }, onClick: saveKey, disabled: !keyDraft.trim() }, "Save and start"))));
+  }
+  const setupScreen = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 880, margin: "0 auto", padding: "44px 20px 72px" } }, /* @__PURE__ */ React.createElement("header", { style: { marginBottom: 30 } }, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 27, letterSpacing: "-0.01em", margin: 0 } }, "Spanish Speaking Trainer"), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 14, margin: "7px 0 0" } }, "Voice practice with a Mexican conversation partner. Pick a level, pick a scene, start talking.")), ttsWarn && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.amber}`,
+        borderRadius: 8,
+        padding: "10px 14px",
+        fontSize: 13,
+        color: T.muted,
+        marginBottom: 20
+      }
+    },
+    "No Spanish voice is installed on this device \u2014 replies will still be spoken, just with the system default voice. You can check again in Settings during the session."
+  ), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "setupGrid",
+      style: { display: "grid", gridTemplateColumns: "230px 1fr", gap: 18, marginBottom: 34, alignItems: "start" }
+    },
+    /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { htmlFor: "lvl", style: labelStyle }, "Level"), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        id: "lvl",
+        className: "sel",
+        value: level,
+        onChange: (e) => setLevel(e.target.value),
+        style: { fontFamily: FONT_MONO, fontSize: 14 }
+      },
+      LEVELS.map((l) => /* @__PURE__ */ React.createElement("option", { key: l, value: l }, l))
+    ), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 12, lineHeight: 1.5, margin: "8px 0 0" } }, "Everything scales off this \u2014 the character's speed, vocabulary, and patience.")),
+    /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { htmlFor: "brf", style: labelStyle }, "Dashboard briefing ", /* @__PURE__ */ React.createElement("span", { style: { textTransform: "none", letterSpacing: 0 } }, "\xB7 optional")), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        id: "brf",
+        className: "ta",
+        value: briefingText,
+        onChange: (e) => setBriefingText(e.target.value),
+        placeholder: 'Paste the JSON from "Copy trainer briefing" \u2014 or skip this and run cold.',
+        spellCheck: false
+      }
+    ), briefing && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12.5, margin: "7px 0 0" } }, "Briefing loaded", briefing.sessionNumber != null ? ` \u2014 session #${briefing.sessionNumber + 1}` : "", briefing.totalHours != null ? `, ${briefing.totalHours} h logged` : "", briefing.topErrors.length ? `, ${briefing.topErrors.length} weak points to work` : "", briefing.recentVocab.length ? `, ${briefing.recentVocab.length} vocab items to weave in` : "", "."), briefErr && /* @__PURE__ */ React.createElement("p", { style: { color: T.red, fontSize: 12.5, margin: "7px 0 0" } }, briefErr))
+  ), REGIONS.map((region) => /* @__PURE__ */ React.createElement("section", { key: region, style: { marginBottom: 26 } }, /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginBottom: 10 } }, region), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 } }, SCENARIOS.filter((s) => s.region === region).map((s) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: s.id,
+      className: "scard",
+      onClick: () => startScenario(s),
+      style: {
+        textAlign: "left",
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderRadius: 10,
+        padding: "13px 15px",
+        cursor: "pointer",
+        color: T.text,
+        fontFamily: FONT_BODY
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, fontSize: 15, marginBottom: 3 } }, s.title),
+    /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 12.5, lineHeight: 1.45 } }, s.desc)
+  ))))), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 12, marginTop: 6 } }, "One click starts the session. Nothing is saved here \u2014 the Dashboard keeps the history."));
+  const canEnd = userTurns > 0 && !awaitingReply;
+  const pendingPanel = pending && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        width: "100%",
+        maxWidth: 560,
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderRadius: 10,
+        padding: "10px 14px"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONT_MONO, fontSize: 10.5, letterSpacing: "0.1em", color: T.muted, marginBottom: 4 } }, "YOU SAID"),
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, lineHeight: 1.5, marginBottom: 8 } }, pending.text),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { color: T.amber }, onClick: sendPending }, "Send \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_MONO } }, "Enter")), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: redoPending }, "Redo \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_MONO } }, "Space")), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: cancelPending }, "Discard \xB7 ", /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_MONO } }, "Esc")))
+  );
+  const liveScreen = scenario && /* @__PURE__ */ React.createElement("div", { className: "appcol", style: { display: "flex", flexDirection: "column", maxWidth: 780, margin: "0 auto", padding: "0 16px" } }, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "12px 0",
+        borderBottom: `1px solid ${T.line}`,
+        flexWrap: "wrap"
+      }
+    },
+    /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600, fontSize: 14 } }, scenario.title),
+    /* @__PURE__ */ React.createElement("span", { style: { color: T.muted, fontSize: 13 } }, "\xB7 ", scenario.name),
+    /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: FONT_MONO,
+          fontSize: 11.5,
+          letterSpacing: "0.06em",
+          background: T.surface,
+          border: `1px solid ${T.line}`,
+          borderRadius: 6,
+          padding: "2px 8px"
+        }
+      },
+      level
+    ),
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        role: "group",
+        "aria-label": "Speaking speed",
+        style: { display: "inline-flex", border: `1px solid ${T.line}`, borderRadius: 8, overflow: "hidden" }
+      },
+      SPEEDS.map((s) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: s.id,
+          onClick: () => setSpeed(s.id),
+          "aria-pressed": speed === s.id,
+          style: {
+            background: speed === s.id ? "#232B36" : "transparent",
+            color: speed === s.id ? T.amber : T.muted,
+            border: "none",
+            padding: "5px 10px",
+            fontSize: 12,
+            fontFamily: FONT_BODY,
+            fontWeight: 500,
+            cursor: "pointer"
+          }
+        },
+        s.label
+      ))
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }),
+    /* @__PURE__ */ React.createElement("button", { className: "btnG", style: { padding: "5px 11px", fontSize: 12 }, onClick: () => setSettingsOpen(true) }, "Settings"),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "btnG",
+        onClick: endSession,
+        disabled: !canEnd,
+        style: { padding: "5px 12px", fontSize: 12, color: T.amber, borderColor: "rgba(232,163,61,0.45)" },
+        title: userTurns === 0 ? "Say something first" : void 0
+      },
+      "End session"
+    )
+  ), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 2px", display: "flex", flexDirection: "column" } }, messages.length === 0 && !awaitingReply && !replyError ? /* @__PURE__ */ React.createElement("p", { style: { margin: "auto", color: T.muted, fontSize: 14, textAlign: "center" } }, "Press the mic and say something. ", scenario.gender === "f" ? "She's" : "He's", " waiting.") : /* @__PURE__ */ React.createElement(React.Fragment, null, messages.map(
+    (m) => m.role === "assistant" ? /* @__PURE__ */ React.createElement("div", { key: m.id, style: { display: "flex", justifyContent: "flex-start", margin: "9px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: "86%" } }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          background: T.surface,
+          border: `1px solid ${T.line}`,
+          borderLeft: `3px solid ${T.teal}`,
+          borderRadius: 10,
+          padding: "10px 14px",
+          fontSize: 15,
+          lineHeight: 1.55
+        }
+      },
+      m.spanish
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 4, paddingLeft: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => speak(m.spanish) }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Replay"), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => toggleEn(m.id), "aria-expanded": m.showEn }, m.showEn ? "Hide English" : "English")), m.showEn && /* @__PURE__ */ React.createElement(
+      "p",
+      {
+        style: {
+          color: T.muted,
+          fontSize: 13,
+          fontStyle: "italic",
+          margin: "4px 0 0",
+          paddingLeft: 4,
+          lineHeight: 1.5
+        }
+      },
+      m.english || "No translation came through for this line."
+    ))) : /* @__PURE__ */ React.createElement("div", { key: m.id, style: { display: "flex", justifyContent: "flex-end", margin: "9px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: "86%", display: "flex", flexDirection: "column", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          background: T.surface,
+          border: `1px solid ${T.line}`,
+          borderRight: `3px solid ${T.amber}`,
+          borderRadius: 10,
+          padding: "10px 14px",
+          fontSize: 15,
+          lineHeight: 1.55,
+          opacity: m.flagged ? 0.45 : 1
+        }
+      },
+      m.text
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "tbtn",
+        style: { marginTop: 4, paddingRight: 4, color: m.flagged ? T.amber : void 0 },
+        onClick: () => toggleFlag(m.id)
+      },
+      m.flagged ? "Excluded from the report \u2014 undo" : "I didn't say that"
+    )))
+  ), awaitingReply && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-start", margin: "9px 0" } }, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.teal}`,
+        borderRadius: 10,
+        padding: "13px 16px"
+      },
+      "aria-label": `${scenario.name} is replying`
+    },
+    /* @__PURE__ */ React.createElement("span", { className: "dots" }, /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", null))
+  )), replyError && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.red}`,
+        borderRadius: 10,
+        padding: "10px 14px",
+        margin: "9px 0",
+        fontSize: 13.5
+      }
+    },
+    /* @__PURE__ */ React.createElement("span", { style: { color: T.muted } }, "The reply didn't come through \u2014 connection hiccup, or the key was rejected (Settings has a change-key option)."),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { color: T.amber }, onClick: () => fetchCharacterReply() }, "Try again"), messages.length > 0 && messages[messages.length - 1].role === "user" && /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: discardFailedTurn }, "Discard my last turn"))
+  )), /* @__PURE__ */ React.createElement("div", { ref: endRef })), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${T.line}`, padding: "10px 0 20px" } }, /* @__PURE__ */ React.createElement("div", { style: { minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center" } }, listening ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 15, color: interim ? T.text : T.muted, textAlign: "center", maxWidth: 560 } }, interim || "Listening\u2026") : pending ? pendingPanel : sttNote ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 13, color: T.muted } }, sttNote) : /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 12, color: T.muted } }, "Hold ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Space"), " to talk \u2014 pause as long as you need; it listens until you release. ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Esc"), " cancels.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: 168, height: 168 } }, /* @__PURE__ */ React.createElement(
+    "svg",
+    {
+      width: "168",
+      height: "168",
+      viewBox: "0 0 168 168",
+      style: { position: "absolute", inset: 0, pointerEvents: "none" },
+      "aria-hidden": "true"
+    },
+    /* @__PURE__ */ React.createElement("circle", { ref: ringRef, cx: "84", cy: "84", r: "58", fill: "none", stroke: T.amber, strokeWidth: "2", strokeOpacity: "0" })
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      "aria-label": listening ? "Stop listening" : "Start listening",
+      className: cls(listening && "pulse"),
+      onClick: () => listening ? stopListening() : startListening(),
+      disabled: !!pending || awaitingReply || replyError,
+      style: {
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%,-50%)",
+        width: 112,
+        height: 112,
+        borderRadius: "50%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        background: listening ? T.amber : "transparent",
+        border: `2px solid ${listening ? T.amber : T.line}`,
+        transition: "background .15s, border-color .15s, opacity .15s",
+        opacity: pending || awaitingReply || replyError ? 0.35 : 1
+      }
+    },
+    /* @__PURE__ */ React.createElement(MicIcon, { size: 32, color: listening ? T.ink : T.muted })
+  )))));
+  const analyzingScreen = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 780, margin: "0 auto", padding: "24vh 20px 0", textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONT_MONO, fontSize: 11, letterSpacing: "0.12em", color: T.amber, marginBottom: 12 } }, "REVIEWING SESSION"), /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 14, margin: 0 } }, "Going back through what you said\u2026"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement("span", { className: "dots" }, /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", null), /* @__PURE__ */ React.createElement("span", null))));
+  const reportScreen = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 780, margin: "0 auto", padding: "36px 20px 72px" } }, /* @__PURE__ */ React.createElement("header", { style: { marginBottom: 6 } }, /* @__PURE__ */ React.createElement("h1", { style: { fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 24, margin: 0 } }, "Session report"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5 } }, scenario ? `${scenario.title} \xB7 ${scenario.name}` : ""), /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: FONT_MONO,
+        fontSize: 11.5,
+        letterSpacing: "0.06em",
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderRadius: 6,
+        padding: "2px 8px"
+      }
+    },
+    level
+  ), stats && /* @__PURE__ */ React.createElement("span", { style: { fontFamily: FONT_MONO, fontSize: 12, color: T.muted, letterSpacing: "0.04em" } }, stats.turns, " TURNS \xB7 ~", stats.words, " WORDS \xB7 ", stats.min, " MIN", briefing && briefing.sessionNumber != null ? ` \xB7 SESSION ${briefing.sessionNumber + 1}` : ""))), reportError ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.red}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        marginTop: 18,
+        fontSize: 14
+      }
+    },
+    /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: T.muted } }, "The analysis didn't come back \u2014 connection hiccup. Your transcript is still here."),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "btnG",
+        style: { marginTop: 10 },
+        onClick: () => {
+          setPhase("analyzing");
+          runAnalysis(lastLangRef.current);
+        }
+      },
+      "Try again"
+    )
+  ), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ React.createElement("button", { className: "btnG", onClick: resetToSetup }, "Start another session"))) : report && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      className: "tbtn",
+      style: { marginTop: 2 },
+      onClick: () => {
+        setPhase("analyzing");
+        runAnalysis(report.lang === "en" ? "es" : "en");
+      }
+    },
+    "Redo the corrections in ",
+    report.lang === "en" ? "Spanish" : "English"
+  ), /* @__PURE__ */ React.createElement("section", { style: { marginTop: 26 } }, /* @__PURE__ */ React.createElement("h2", { style: secHead }, "Errors"), report.errors.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: emptyLine }, "No recurring error patterns stood out this session.") : report.errors.map((er, i) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: i,
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.red}`,
+        borderRadius: 10,
+        padding: "12px 15px",
+        marginBottom: 10
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { fontFamily: FONT_MONO, fontSize: 11.5, letterSpacing: "0.05em", color: T.red, marginBottom: 6 } }, er.pattern),
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("span", { style: { color: T.muted } }, '"', er.youSaid, '"'), /* @__PURE__ */ React.createElement("span", { style: { color: T.muted, fontFamily: FONT_MONO } }, " \u2192 "), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600 } }, er.correct)),
+    er.explanation && /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 13, margin: "6px 0 0", lineHeight: 1.5 } }, er.explanation)
+  ))), /* @__PURE__ */ React.createElement("section", { style: { marginTop: 26 } }, /* @__PURE__ */ React.createElement("h2", { style: secHead }, "Vocabulary you reached for"), report.vocabGaps.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: emptyLine }, "No gaps caught this time \u2014 nothing you reached for went missing.") : report.vocabGaps.map((g, i) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: i,
+      style: {
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderLeft: `3px solid ${T.teal}`,
+        borderRadius: 10,
+        padding: "12px 15px",
+        marginBottom: 10
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15 } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600 } }, g.spanish), /* @__PURE__ */ React.createElement("span", { style: { color: T.muted } }, " \u2014 ", g.english)),
+    g.note && /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 13, margin: "5px 0 0", lineHeight: 1.5 } }, g.note)
+  ))), /* @__PURE__ */ React.createElement("section", { style: { marginTop: 26 } }, /* @__PURE__ */ React.createElement("h2", { style: secHead }, "What went well"), report.wentWell.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: emptyLine }, "Not enough Spanish in this one to judge \u2014 longer session next time.") : report.wentWell.map((w, i) => /* @__PURE__ */ React.createElement(
+    "p",
+    {
+      key: i,
+      style: {
+        fontSize: 14.5,
+        lineHeight: 1.6,
+        margin: "0 0 8px",
+        paddingLeft: 14,
+        borderLeft: `2px solid ${T.line}`
+      }
+    },
+    w
+  ))), /* @__PURE__ */ React.createElement(
+    "section",
+    {
+      style: {
+        marginTop: 34,
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderRadius: 12,
+        padding: "18px 18px 16px"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btnA", onClick: copyExport }, copied ? "Copied \u2713" : "Copy session for dashboard"), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setRawOpen((o) => !o), "aria-expanded": rawOpen }, rawOpen ? "Hide raw JSON" : "Show raw JSON")),
+    copyFail && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 13, margin: "10px 0 0" } }, "The clipboard said no \u2014 select and copy the JSON below instead."),
+    /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 12.5, margin: "10px 0 0" } }, `Paste this into the Dashboard's "Paste speaking session" box. Vocabulary gaps go straight to the Mined deck; errors count toward production cards.`),
+    rawOpen && /* @__PURE__ */ React.createElement(
+      "pre",
+      {
+        style: {
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          lineHeight: 1.5,
+          background: T.ink,
+          border: `1px solid ${T.line}`,
+          borderRadius: 8,
+          padding: 14,
+          marginTop: 12,
+          overflowX: "auto",
+          whiteSpace: "pre"
+        }
+      },
+      exportJson
+    )
+  ), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 26 } }, /* @__PURE__ */ React.createElement("button", { className: "btnG", onClick: resetToSetup }, "Start another session"))));
+  const settingsPanel = settingsOpen && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 60 }, onClick: () => setSettingsOpen(false) }, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      role: "dialog",
+      "aria-label": "Settings",
+      onClick: (e) => e.stopPropagation(),
+      style: {
+        position: "absolute",
+        top: 62,
+        right: 16,
+        width: 316,
+        maxWidth: "calc(100vw - 32px)",
+        background: T.surface,
+        border: `1px solid ${T.line}`,
+        borderRadius: 12,
+        padding: 16,
+        boxShadow: "0 14px 36px rgba(0,0,0,0.5)"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: labelStyle }, "Voice"),
+    /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))),
+    /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: () => speak("\xBFTodo bien? Aqu\xED andamos, listos para platicar.") }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Test this voice"),
+    ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),
+    /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Report corrections"),
+    /* @__PURE__ */ React.createElement("select", { className: "sel", value: reportLangPref, onChange: (e) => setReportLangPref(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "auto" }, "Auto \u2014 English through A2, Spanish from B1"), /* @__PURE__ */ React.createElement("option", { value: "en" }, "Always English"), /* @__PURE__ */ React.createElement("option", { value: "es" }, "Always Spanish")),
+    /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Speech recognition"),
+    /* @__PURE__ */ React.createElement("p", { style: { color: dgKey ? T.teal : T.muted, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, dgKey ? "Deepgram Nova-3 (active)" : "Browser recognizer \u2014 add a Deepgram key for much better accuracy (console.deepgram.com, $200 free credit)."),
+    dgKey ? /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: clearDgKey }, "Remove Deepgram key") : /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "sel",
+        type: "password",
+        value: dgDraft,
+        onChange: (e) => setDgDraft(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") saveDgKey();
+        },
+        placeholder: "Deepgram key",
+        autoComplete: "off",
+        spellCheck: false
+      }
+    ), /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: saveDgKey, disabled: !dgDraft.trim() }, "Save Deepgram key")),
+    /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 16 }, onClick: clearKey }, "Change API key (ends the current session)"),
+    /* @__PURE__ */ React.createElement("button", { className: "btnG", style: { marginTop: 10, width: "100%" }, onClick: () => setSettingsOpen(false) }, "Done")
+  ));
+  return /* @__PURE__ */ React.createElement("div", { style: pageStyle }, /* @__PURE__ */ React.createElement("style", null, CSS), phase === "setup" && setupScreen, phase === "live" && liveScreen, phase === "analyzing" && analyzingScreen, phase === "report" && reportScreen, settingsPanel);
+}
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; }
+::selection { background: rgba(232,163,61,0.28); }
+*:focus-visible { outline: 2px solid ${T.amber}; outline-offset: 2px; border-radius: 6px; }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-thumb { background: ${T.line}; border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+.appcol { height: 100vh; height: 100dvh; }
+.scard { transition: border-color .12s; }
+.scard:hover { border-color: ${T.amber} !important; }
+.tbtn { background: none; border: none; padding: 2px 0; font: 500 12px 'IBM Plex Sans', system-ui, sans-serif; color: ${T.muted}; cursor: pointer; }
+.tbtn:hover { color: ${T.text}; }
+.btnA { background: ${T.amber}; color: ${T.ink}; border: none; border-radius: 8px; padding: 10px 16px; font: 600 14px 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; }
+.btnA:hover { filter: brightness(1.06); }
+.btnA:disabled { opacity: .45; cursor: default; }
+.btnG { background: transparent; color: ${T.text}; border: 1px solid ${T.line}; border-radius: 8px; padding: 9px 16px; font: 500 13px 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; }
+.btnG:hover { border-color: ${T.muted}; }
+.btnG:disabled { opacity: .4; cursor: default; }
+.sel, .ta { width: 100%; background: ${T.ink}; border: 1px solid ${T.line}; color: ${T.text}; border-radius: 8px; padding: 9px 10px; font: 400 14px 'IBM Plex Sans', system-ui, sans-serif; }
+.ta { resize: vertical; min-height: 96px; line-height: 1.5; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; }
+.sel:hover, .ta:hover { border-color: ${T.muted}; }
+@keyframes micPulse { 0% { box-shadow: 0 0 0 0 rgba(232,163,61,0.42); } 100% { box-shadow: 0 0 0 22px rgba(232,163,61,0); } }
+.pulse { animation: micPulse 1.5s ease-out infinite; }
+@keyframes fillbar { from { width: 0%; } to { width: 100%; } }
+.pbar { height: 3px; background: ${T.line}; border-radius: 2px; overflow: hidden; }
+.pfill { height: 100%; background: ${T.amber}; width: 0%; animation: fillbar 1.5s linear forwards; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.dots span { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: ${T.teal}; animation: blink 1.2s infinite; }
+.dots span:nth-child(2) { animation-delay: .2s; }
+.dots span:nth-child(3) { animation-delay: .4s; }
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; box-shadow: 0 0 0 6px rgba(232,163,61,0.25); }
+  .dots span { animation: none; opacity: .7; }
+  .pfill { animation: none; width: 100%; }
+  .scard { transition: none; }
+}
+@media (max-width: 640px) {
+  .setupGrid { grid-template-columns: 1fr !important; }
+}
+`;
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(SpanishSpeakingTrainer));
+
+</script>
+</body>
+</html>
