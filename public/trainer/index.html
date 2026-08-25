@@ -386,6 +386,9 @@ function SpanishSpeakingTrainer() {
   const mediaRecRef = useRef(null);
   const dgStreamRef = useRef(null);
   const dgStopTimerRef = useRef(null);
+  const audioRef = useRef(null);
+  const scenarioRef = useRef(null);
+  const auraFailsRef = useRef(0);
   const sendPendingRef = useRef(() => {
   });
   const sessionStartRef = useRef(null);
@@ -400,6 +403,7 @@ function SpanishSpeakingTrainer() {
     voicesRef.current = voices;
     voiceURIRef.current = voiceURI;
     dgKeyRef.current = dgKey;
+    scenarioRef.current = scenario;
   });
   const setMsgs = (next) => {
     messagesRef.current = next;
@@ -455,7 +459,7 @@ function SpanishSpeakingTrainer() {
     setVoiceURI((mx || esVoices[0]).voiceURI);
     setTtsWarn(false);
   }, [voices, esVoices, voiceURI]);
-  const speak = (text) => {
+  const speakBrowser = (text) => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
     if (!synth || !text) return;
     try {
@@ -468,6 +472,66 @@ function SpanishSpeakingTrainer() {
       u.rate = sp ? sp.rate : 1;
       synth.speak(u);
     } catch (e) {
+    }
+  };
+  const stopSpeaking = () => {
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    } catch (e) {
+    }
+    try {
+      window.speechSynthesis && window.speechSynthesis.cancel();
+    } catch (e) {
+    }
+  };
+  const AURA_F_BY_SCENE = {
+    cita: "aura-2-selena-es",
+    mercado: "aura-2-diana-es",
+    anfitrion: "aura-2-carina-es",
+    companero: "aura-2-carina-es",
+    vecino: "aura-2-diana-es"
+  };
+  const auraVoiceFor = (sc) => {
+    if (!sc) return "aura-2-carina-es";
+    if (sc.gender === "f") return AURA_F_BY_SCENE[sc.id] || "aura-2-selena-es";
+    return "aura-2-javier-es";
+  };
+  const speak = async (text) => {
+    if (!text) return;
+    stopSpeaking();
+    const key = dgKeyRef.current;
+    if (!key || auraFailsRef.current >= 2) {
+      speakBrowser(text);
+      return;
+    }
+    try {
+      const voice = auraVoiceFor(scenarioRef.current);
+      const resp = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
+        method: "POST",
+        headers: { Authorization: "Token " + key, "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      if (!resp.ok) throw new Error("aura " + resp.status);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      audioRef.current = a;
+      const sp = SPEEDS.find((s) => s.id === speedRef.current);
+      a.playbackRate = sp ? sp.rate : 1;
+      a.onended = () => {
+        URL.revokeObjectURL(url);
+        if (audioRef.current === a) audioRef.current = null;
+      };
+      await a.play();
+      auraFailsRef.current = 0;
+    } catch (e) {
+      auraFailsRef.current += 1;
+      if (auraFailsRef.current >= 2)
+        setSttNote("Aura voices unavailable \u2014 using the browser voice. Check the Deepgram key or credits.");
+      speakBrowser(text);
     }
   };
   const startMeter = async (existingStream) => {
@@ -530,7 +594,7 @@ function SpanishSpeakingTrainer() {
       return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeaking();
     setSttNote(null);
     const r = new SR();
     r.lang = "es-MX";
@@ -641,7 +705,7 @@ function SpanishSpeakingTrainer() {
     startWebSpeech();
   };
   const startDeepgram = async () => {
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeaking();
     setSttNote(null);
     finalRef.current = "";
     abortedRef.current = false;
@@ -897,7 +961,7 @@ Produce the JSON analysis now.`
     if (awaitingRef.current) return;
     cancelListening();
     cancelPending();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeaking();
     const userMsgs = messagesRef.current.filter((m) => m.role === "user");
     setStats({
       turns: userMsgs.length,
@@ -911,7 +975,7 @@ Produce the JSON analysis now.`
   const resetToSetup = () => {
     cancelListening();
     cancelPending();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeaking();
     setMsgs([]);
     setScenario(null);
     setReport(null);
@@ -1011,7 +1075,7 @@ Produce the JSON analysis now.`
       }
       if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
       stopMeter();
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      stopSpeaking();
     };
   }, []);
   const pageStyle = { minHeight: "100vh", background: T.ink, color: T.text, fontFamily: FONT_BODY };
@@ -1533,6 +1597,7 @@ Produce the JSON analysis now.`
       }
     },
     /* @__PURE__ */ React.createElement("div", { style: labelStyle }, "Voice"),
+    dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active \u2014 each character gets a matching Mexican voice automatically (your date speaks with a female voice, the taquero with a male one). The picker below is the fallback voice only."),
     /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: () => speak("\xBFTodo bien? Aqu\xED andamos, listos para platicar.") }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Test this voice"),
     ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),
