@@ -389,6 +389,9 @@ function SpanishSpeakingTrainer() {
   const audioRef = useRef(null);
   const scenarioRef = useRef(null);
   const auraFailsRef = useRef(0);
+  const startPendingRef = useRef(false);
+  const stopWantedRef = useRef(false);
+  const spaceDownAtRef = useRef(0);
   const sendPendingRef = useRef(() => {
   });
   const sessionStartRef = useRef(null);
@@ -709,19 +712,27 @@ function SpanishSpeakingTrainer() {
     setSttNote(null);
     finalRef.current = "";
     abortedRef.current = false;
+    startPendingRef.current = true;
+    stopWantedRef.current = false;
     listeningRef.current = true;
     setListening(true);
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
+      startPendingRef.current = false;
       listeningRef.current = false;
       setListening(false);
       setSttNote("Mic access was blocked \u2014 allow the microphone and try again.");
       return;
     }
-    if (!listeningRef.current) {
+    if (!listeningRef.current || stopWantedRef.current) {
+      startPendingRef.current = false;
+      stopWantedRef.current = false;
       stream.getTracks().forEach((t) => t.stop());
+      listeningRef.current = false;
+      setListening(false);
+      stopMeter();
       return;
     }
     dgStreamRef.current = stream;
@@ -733,13 +744,23 @@ function SpanishSpeakingTrainer() {
         ["token", dgKeyRef.current]
       );
     } catch (e) {
+      startPendingRef.current = false;
       dgFail(stream);
       return;
     }
     wsRef.current = ws;
+    startPendingRef.current = false;
     ws._gotTranscript = false;
     ws.onopen = () => {
       if (wsRef.current !== ws) return;
+      if (stopWantedRef.current) {
+        stopWantedRef.current = false;
+        try {
+          ws.close();
+        } catch (e) {
+        }
+        return;
+      }
       let mr;
       try {
         const mime = window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
@@ -797,6 +818,10 @@ function SpanishSpeakingTrainer() {
     else startWebSpeech();
   };
   const stopListening = () => {
+    if (startPendingRef.current) {
+      stopWantedRef.current = true;
+      return;
+    }
     if (wsRef.current) {
       const ws = wsRef.current;
       try {
@@ -1036,9 +1061,14 @@ Produce the JSON analysis now.`
         if (e.repeat) return;
         if (pendingRef.current && !awaitingRef.current && !replyErrorRef.current) {
           spaceHeldRef.current = true;
+          spaceDownAtRef.current = Date.now();
           redoPending();
+        } else if (listeningRef.current) {
+          spaceHeldRef.current = false;
+          stopListening();
         } else if (!listeningRef.current && !pendingRef.current && !awaitingRef.current && !replyErrorRef.current) {
           spaceHeldRef.current = true;
+          spaceDownAtRef.current = Date.now();
           startListening();
         }
       } else if (e.key === "Enter") {
@@ -1054,7 +1084,7 @@ Produce the JSON analysis now.`
     const up = (e) => {
       if (e.code === "Space" && spaceHeldRef.current) {
         spaceHeldRef.current = false;
-        stopListening();
+        if (Date.now() - spaceDownAtRef.current >= 350) stopListening();
       }
     };
     window.addEventListener("keydown", down);
@@ -1410,7 +1440,7 @@ Produce the JSON analysis now.`
     },
     /* @__PURE__ */ React.createElement("span", { style: { color: T.muted } }, "The reply didn't come through \u2014 connection hiccup, or the key was rejected (Settings has a change-key option)."),
     /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { color: T.amber }, onClick: () => fetchCharacterReply() }, "Try again"), messages.length > 0 && messages[messages.length - 1].role === "user" && /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: discardFailedTurn }, "Discard my last turn"))
-  )), /* @__PURE__ */ React.createElement("div", { ref: endRef })), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${T.line}`, padding: "10px 0 20px" } }, /* @__PURE__ */ React.createElement("div", { style: { minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center" } }, listening ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 15, color: interim ? T.text : T.muted, textAlign: "center", maxWidth: 560 } }, interim || "Listening\u2026") : pending ? pendingPanel : sttNote ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 13, color: T.muted } }, sttNote) : /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 12, color: T.muted } }, "Hold ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Space"), " to talk \u2014 pause as long as you need; it listens until you release. ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Esc"), " cancels.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: 168, height: 168 } }, /* @__PURE__ */ React.createElement(
+  )), /* @__PURE__ */ React.createElement("div", { ref: endRef })), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${T.line}`, padding: "10px 0 20px" } }, /* @__PURE__ */ React.createElement("div", { style: { minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center" } }, listening ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 15, color: interim ? T.text : T.muted, textAlign: "center", maxWidth: 560 } }, interim || "Listening\u2026") : pending ? pendingPanel : sttNote ? /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 13, color: T.muted } }, sttNote) : /* @__PURE__ */ React.createElement("p", { style: { margin: 0, fontSize: 12, color: T.muted } }, "Tap ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Space"), " to toggle the mic (tap again to stop), or hold it to talk. Pause as long as you need. ", /* @__PURE__ */ React.createElement("kbd", { style: kbdStyle }, "Esc"), " cancels.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: 168, height: 168 } }, /* @__PURE__ */ React.createElement(
     "svg",
     {
       width: "168",
