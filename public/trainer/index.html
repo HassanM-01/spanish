@@ -144,6 +144,22 @@ const SCENARIOS = [
   }
 ];
 const REGIONS = ["Mexico", "Texas", "Open"];
+const CLOUD_VOICE_BY_SCENE = {
+  taqueria: "sirio",
+  mercado: "estrella",
+  cita: "olivia",
+  cantina: "luciano",
+  anfitrion: "estrella",
+  taxi: "valerio",
+  companero: "olivia",
+  gym: "luciano",
+  trabajo: "sirio",
+  vecino: "estrella",
+  "taqueria-htx": "javier",
+  libre: "javier"
+};
+const CLOUD_VOICE_DEFAULT = "javier";
+const cloudVoiceFor = (sc) => (sc && CLOUD_VOICE_BY_SCENE[sc.id]) || CLOUD_VOICE_DEFAULT;
 const LEVEL_RULES = {
   "Pre-A1": "Speak only in the present tense, with very high-frequency vocabulary and sentences of eight words or fewer. Repeat and rephrase patiently. Two to three very short sentences per turn, no more.",
   A1: "Stick to the present tense (near-future with 'ir a' is fine), high-frequency vocabulary, short sentences, patient repetition. Two to three short sentences per turn.",
@@ -343,6 +359,7 @@ function SpanishSpeakingTrainer() {
   const [voices, setVoices] = useState([]);
   const [voiceURI, setVoiceURI] = useState(null);
   const [ttsWarn, setTtsWarn] = useState(false);
+  const [ttsProvider, setTtsProvider] = useState("none");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportLangPref, setReportLangPref] = useState("auto");
   const [stats, setStats] = useState(null);
@@ -389,6 +406,8 @@ function SpanishSpeakingTrainer() {
   const audioRef = useRef(null);
   const scenarioRef = useRef(null);
   const auraFailsRef = useRef(0);
+  const ttsProviderRef = useRef("none");
+  const speakSeqRef = useRef(0);
   const startPendingRef = useRef(false);
   const stopWantedRef = useRef(false);
   const spaceDownAtRef = useRef(0);
@@ -407,6 +426,7 @@ function SpanishSpeakingTrainer() {
     voiceURIRef.current = voiceURI;
     dgKeyRef.current = dgKey;
     scenarioRef.current = scenario;
+    ttsProviderRef.current = ttsProvider;
   });
   const setMsgs = (next) => {
     messagesRef.current = next;
@@ -436,6 +456,25 @@ function SpanishSpeakingTrainer() {
       setBriefErr("Couldn't parse that \u2014 paste the JSON exactly as the Dashboard copied it.");
     }
   }, [briefingText]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/tts", { method: "GET", headers: { Accept: "application/json" } });
+        if (!r.ok) return;
+        const j = await r.json();
+        const p = j && typeof j.provider === "string" ? j.provider : "none";
+        if (!cancelled && (p === "deepgram" || p === "elevenlabs")) {
+          setTtsProvider(p);
+          ttsProviderRef.current = p;
+        }
+      } catch (e) {
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
     if (!synth) return;
@@ -478,6 +517,7 @@ function SpanishSpeakingTrainer() {
     }
   };
   const stopSpeaking = () => {
+    speakSeqRef.current += 1;
     try {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -502,9 +542,45 @@ function SpanishSpeakingTrainer() {
     if (sc.gender === "f") return AURA_F_BY_SCENE[sc.id] || "aura-2-selena-es";
     return "aura-2-javier-es";
   };
+  const playBlob = async (blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    audioRef.current = a;
+    const sp = SPEEDS.find((s) => s.id === speedRef.current);
+    a.playbackRate = sp ? sp.rate : 1;
+    const done = () => {
+      URL.revokeObjectURL(url);
+      if (audioRef.current === a) audioRef.current = null;
+    };
+    a.onended = done;
+    a.onerror = done;
+    await a.play();
+  };
+  const speakCloud = async (text) => {
+    const seq = speakSeqRef.current;
+    const resp = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({ text, voice: cloudVoiceFor(scenarioRef.current) })
+    });
+    if (!resp.ok) throw new Error("tts " + resp.status);
+    const blob = await resp.blob();
+    if (!blob || !blob.size) throw new Error("tts empty");
+    if (seq !== speakSeqRef.current) return;
+    await playBlob(blob);
+  };
   const speak = async (text) => {
     if (!text) return;
     stopSpeaking();
+    if (ttsProviderRef.current !== "none") {
+      try {
+        await speakCloud(text);
+      } catch (e) {
+        stopSpeaking();
+        speakBrowser(text);
+      }
+      return;
+    }
     const key = dgKeyRef.current;
     if (!key || auraFailsRef.current >= 2) {
       speakBrowser(text);
@@ -1627,7 +1703,7 @@ Produce the JSON analysis now.`
       }
     },
     /* @__PURE__ */ React.createElement("div", { style: labelStyle }, "Voice"),
-    dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active \u2014 each character gets a matching Mexican voice automatically (your date speaks with a female voice, the taquero with a male one). The picker below is the fallback voice only."),
+    ttsProvider !== "none" ? /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, ttsProvider === "deepgram" ? "Cloud voice active (Deepgram Aura-2) — each character gets a matching Mexican voice automatically. The picker below is the fallback voice only." : "Cloud voice active (ElevenLabs). The picker below is the fallback voice only.") : dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active \u2014 each character gets a matching Mexican voice automatically (your date speaks with a female voice, the taquero with a male one). The picker below is the fallback voice only."),
     /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: () => speak("\xBFTodo bien? Aqu\xED andamos, listos para platicar.") }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Test this voice"),
     ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),

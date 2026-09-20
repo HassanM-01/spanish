@@ -60,3 +60,16 @@ copies `index.html` to `404.html` automatically so refreshes never 404.
   before switching machines.
 - Version B seams: `src/lib/enrich.js` and `src/lib/trainerBridge.js` are the only
   files to swap for in-app enrichment / same-origin bridge.
+
+## Cloud voice for the trainer (Vercel)
+
+`api/tts.js` is a Vercel serverless function that proxies text-to-speech so no API key
+ships to the browser. Set one of these in the Vercel project's environment variables:
+
+- `DEEPGRAM_API_KEY` — Deepgram Aura-2 (es-MX voices, one per character).
+- `ELEVENLABS_API_KEY` — ElevenLabs; optional `ELEVENLABS_VOICE_ID` and `ELEVENLABS_MODEL_ID`.
+- `TTS_PROVIDER` — `deepgram` | `elevenlabs` | `none` to override auto-detection.
+
+The trainer probes `GET /api/tts` once on load. If a provider is configured it speaks
+replies via `POST /api/tts`; on any failure (or on GitHub Pages, where there is no API)
+it falls back to the browser's `speechSynthesis`.
