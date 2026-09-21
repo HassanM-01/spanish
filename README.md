@@ -75,3 +75,20 @@ replies from `GET /api/tts?text=...&voice=...` straight into an `<audio>` elemen
 starts before the clip has finished downloading. On any failure (or on GitHub Pages, where
 there is no API) it falls back to the browser's `speechSynthesis`. Settings → "Character voice"
 lets you force the browser voice ("Browser (instant)"); the choice is saved in localStorage.
+
+## Trainer latency: debug mode and recent changes
+
+Open the trainer with `?debug=1` (or set `localStorage.st_debug = "1"`) to print per-turn timings
+to the console: one collapsed group per turn with a stage table (mic press, STT open/final, pending
+dwell, request sent, response, parse, render, first sound) and a summary row that includes token
+usage and cache reads. The last 50 turns are kept in `window.__stPerf`, and Settings gains a
+"Copy perf log" button that copies them as JSON. Stage definitions and the decision rules are in
+`PERFORMANCE.md` §6. Debug off means every instrumentation call is a no-op.
+
+Latency changes so far (PERFORMANCE.md fixes 3, 5, 6, 10): the character now replies with the
+Spanish line only and the English translation is fetched in the background (or when "English" is
+tapped); the Deepgram recorder flushes its last chunk before `CloseStream`, with the 1200 ms
+fallback kept until the debug log shows real close times; the chat call sets `cache_control` on the
+system block and on the last message so the growing conversation is served from the prompt cache;
+the browser-voice auto-pick prefers on-device voices (network voices are marked "online" in the
+picker) and no longer queues an utterance in the same tick as an interrupting cancel.
