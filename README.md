@@ -70,6 +70,8 @@ ships to the browser. Set one of these in the Vercel project's environment varia
 - `ELEVENLABS_API_KEY` — ElevenLabs; optional `ELEVENLABS_VOICE_ID` and `ELEVENLABS_MODEL_ID`.
 - `TTS_PROVIDER` — `deepgram` | `elevenlabs` | `none` to override auto-detection.
 
-The trainer probes `GET /api/tts` once on load. If a provider is configured it speaks
-replies via `POST /api/tts`; on any failure (or on GitHub Pages, where there is no API)
-it falls back to the browser's `speechSynthesis`.
+The trainer probes `GET /api/tts` once on load. If a provider is configured it streams
+replies from `GET /api/tts?text=...&voice=...` straight into an `<audio>` element, so playback
+starts before the clip has finished downloading. On any failure (or on GitHub Pages, where
+there is no API) it falls back to the browser's `speechSynthesis`. Settings → "Character voice"
+lets you force the browser voice ("Browser (instant)"); the choice is saved in localStorage.
