@@ -1,7 +1,11 @@
 // Vercel serverless function: server-side text-to-speech proxy.
 //
-//   GET  /api/tts                 -> { provider: "deepgram" | "elevenlabs" | "none" }
-//   POST /api/tts { text, voice } -> audio/mpeg stream
+//   GET  /api/tts                        -> { provider: "deepgram" | "elevenlabs" | "none" }
+//   GET  /api/tts?text=...&voice=...     -> audio/mpeg stream (lets <audio src> start playing
+//                                           while the rest of the clip is still downloading)
+//   POST /api/tts { text, voice }        -> audio/mpeg stream
+//
+// Audio is piped straight from the provider as chunks arrive; nothing is buffered here.
 //
 // Keys live only in environment variables and never reach the client.
 //   DEEPGRAM_API_KEY      Deepgram Aura-2 (voice = Aura-2 Spanish voice name, e.g. "javier")
@@ -31,6 +35,22 @@ function readBody(req) {
   } catch (e) {
     return {};
   }
+}
+
+function readQuery(req) {
+  const q = req.query;
+  if (q && typeof q === "object") return q;
+  try {
+    const u = new URL(req.url || "/", "http://localhost");
+    return Object.fromEntries(u.searchParams.entries());
+  } catch (e) {
+    return {};
+  }
+}
+
+function firstString(v) {
+  if (Array.isArray(v)) v = v[0];
+  return typeof v === "string" ? v : "";
 }
 
 function sanitizeVoice(v) {
@@ -69,13 +89,17 @@ async function upstreamFor(provider, text, voice) {
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
 
+  let params;
   if (req.method === "GET") {
-    res.setHeader("Content-Type", "application/json");
-    res.status(200).end(JSON.stringify({ provider: pickProvider() }));
-    return;
-  }
-
-  if (req.method !== "POST") {
+    params = readQuery(req);
+    if (!firstString(params.text).trim()) {
+      res.setHeader("Content-Type", "application/json");
+      res.status(200).end(JSON.stringify({ provider: pickProvider() }));
+      return;
+    }
+  } else if (req.method === "POST") {
+    params = readBody(req);
+  } else {
     res.setHeader("Allow", "GET, POST");
     res.status(405).end(JSON.stringify({ error: "method not allowed" }));
     return;
@@ -87,9 +111,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const body = readBody(req);
-  const rawText = typeof body.text === "string" ? body.text : "";
-  const text = rawText.trim().slice(0, MAX_CHARS);
+  const text = firstString(params.text).trim().slice(0, MAX_CHARS);
   if (!text) {
     res.status(400).end(JSON.stringify({ error: "text required" }));
     return;
@@ -97,7 +119,7 @@ export default async function handler(req, res) {
 
   let upstream;
   try {
-    upstream = await upstreamFor(provider, text, body.voice);
+    upstream = await upstreamFor(provider, text, firstString(params.voice));
   } catch (e) {
     res.status(502).end(JSON.stringify({ error: "tts upstream unreachable" }));
     return;
@@ -114,8 +136,24 @@ export default async function handler(req, res) {
 
   res.status(200);
   res.setHeader("Content-Type", "audio/mpeg");
+  res.setHeader("Accept-Ranges", "none");
   if (upstream.body && typeof Readable.fromWeb === "function") {
-    Readable.fromWeb(upstream.body).on("error", () => res.end()).pipe(res);
+    // Pipe chunk-by-chunk; the client can begin playback before the upstream finishes.
+    const src = Readable.fromWeb(upstream.body);
+    src.on("error", () => res.end());
+    res.on("close", () => src.destroy());
+    src.pipe(res);
+  } else if (upstream.body && typeof upstream.body.getReader === "function") {
+    const reader = upstream.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+    } catch (e) {
+    }
+    res.end();
   } else {
     res.end(Buffer.from(await upstream.arrayBuffer()));
   }

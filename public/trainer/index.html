@@ -360,6 +360,14 @@ function SpanishSpeakingTrainer() {
   const [voiceURI, setVoiceURI] = useState(null);
   const [ttsWarn, setTtsWarn] = useState(false);
   const [ttsProvider, setTtsProvider] = useState("none");
+  const [voiceMode, setVoiceMode] = useState(() => {
+    try {
+      const v = localStorage.getItem("st_voice_mode");
+      return v === "browser" || v === "deepgram" ? v : "deepgram";
+    } catch (e) {
+      return "deepgram";
+    }
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportLangPref, setReportLangPref] = useState("auto");
   const [stats, setStats] = useState(null);
@@ -407,6 +415,7 @@ function SpanishSpeakingTrainer() {
   const scenarioRef = useRef(null);
   const auraFailsRef = useRef(0);
   const ttsProviderRef = useRef("none");
+  const voiceModeRef = useRef("deepgram");
   const speakSeqRef = useRef(0);
   const startPendingRef = useRef(false);
   const stopWantedRef = useRef(false);
@@ -427,7 +436,17 @@ function SpanishSpeakingTrainer() {
     dgKeyRef.current = dgKey;
     scenarioRef.current = scenario;
     ttsProviderRef.current = ttsProvider;
+    voiceModeRef.current = voiceMode;
   });
+  const chooseVoiceMode = (v) => {
+    const m = v === "browser" ? "browser" : "deepgram";
+    setVoiceMode(m);
+    voiceModeRef.current = m;
+    try {
+      localStorage.setItem("st_voice_mode", m);
+    } catch (e) {
+    }
+  };
   const setMsgs = (next) => {
     messagesRef.current = next;
     setMessages(next);
@@ -519,9 +538,14 @@ function SpanishSpeakingTrainer() {
   const stopSpeaking = () => {
     speakSeqRef.current += 1;
     try {
-      if (audioRef.current) {
-        audioRef.current.pause();
+      const a = audioRef.current;
+      if (a) {
         audioRef.current = null;
+        a.pause();
+        a.onended = null;
+        a.onerror = null;
+        a.removeAttribute("src");
+        a.load();
       }
     } catch (e) {
     }
@@ -542,40 +566,50 @@ function SpanishSpeakingTrainer() {
     if (sc.gender === "f") return AURA_F_BY_SCENE[sc.id] || "aura-2-selena-es";
     return "aura-2-javier-es";
   };
-  const playBlob = async (blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = new Audio(url);
-    audioRef.current = a;
-    const sp = SPEEDS.find((s) => s.id === speedRef.current);
-    a.playbackRate = sp ? sp.rate : 1;
-    const done = () => {
-      URL.revokeObjectURL(url);
-      if (audioRef.current === a) audioRef.current = null;
-    };
-    a.onended = done;
-    a.onerror = done;
-    await a.play();
-  };
-  const speakCloud = async (text) => {
-    const seq = speakSeqRef.current;
-    const resp = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text, voice: cloudVoiceFor(scenarioRef.current) })
+  const cloudTtsUrl = (text) =>
+    "/api/tts?text=" + encodeURIComponent(text.slice(0, 1500)) + "&voice=" + encodeURIComponent(cloudVoiceFor(scenarioRef.current));
+  // Streams straight from the GET endpoint: the browser starts playing as soon as it has
+  // buffered enough, while the rest of the clip is still downloading. Any error before
+  // playback starts (network, 4xx/5xx, decode) rejects, and the caller falls back silently.
+  const speakCloud = (text) =>
+    new Promise((resolve, reject) => {
+      const seq = speakSeqRef.current;
+      const a = new Audio();
+      a.preload = "auto";
+      audioRef.current = a;
+      const sp = SPEEDS.find((s) => s.id === speedRef.current);
+      a.playbackRate = sp ? sp.rate : 1;
+      let started = false;
+      a.onended = () => {
+        if (audioRef.current === a) audioRef.current = null;
+      };
+      a.onerror = () => {
+        if (audioRef.current === a) audioRef.current = null;
+        if (!started) reject(new Error("tts stream error"));
+      };
+      a.onplaying = () => {
+        started = true;
+        resolve();
+      };
+      a.src = cloudTtsUrl(text);
+      a.play().catch((e) => {
+        if (seq !== speakSeqRef.current) resolve();
+        else reject(e);
+      });
     });
-    if (!resp.ok) throw new Error("tts " + resp.status);
-    const blob = await resp.blob();
-    if (!blob || !blob.size) throw new Error("tts empty");
-    if (seq !== speakSeqRef.current) return;
-    await playBlob(blob);
-  };
   const speak = async (text) => {
     if (!text) return;
     stopSpeaking();
+    if (voiceModeRef.current === "browser") {
+      speakBrowser(text);
+      return;
+    }
     if (ttsProviderRef.current !== "none") {
+      const seq = speakSeqRef.current;
       try {
         await speakCloud(text);
       } catch (e) {
+        if (seq !== speakSeqRef.current) return;
         stopSpeaking();
         speakBrowser(text);
       }
@@ -1702,8 +1736,11 @@ Produce the JSON analysis now.`
         boxShadow: "0 14px 36px rgba(0,0,0,0.5)"
       }
     },
-    /* @__PURE__ */ React.createElement("div", { style: labelStyle }, "Voice"),
-    ttsProvider !== "none" ? /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, ttsProvider === "deepgram" ? "Cloud voice active (Deepgram Aura-2) — each character gets a matching Mexican voice automatically. The picker below is the fallback voice only." : "Cloud voice active (ElevenLabs). The picker below is the fallback voice only.") : dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active \u2014 each character gets a matching Mexican voice automatically (your date speaks with a female voice, the taquero with a male one). The picker below is the fallback voice only."),
+    /* @__PURE__ */ React.createElement("div", { style: labelStyle }, "Character voice"),
+    /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceMode, onChange: (e) => chooseVoiceMode(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "deepgram", disabled: ttsProvider === "none" }, ttsProvider === "elevenlabs" ? "ElevenLabs (natural)" : "Deepgram (natural)"), /* @__PURE__ */ React.createElement("option", { value: "browser" }, "Browser (instant)")),
+    /* @__PURE__ */ React.createElement("p", { style: { color: voiceMode !== "browser" && ttsProvider !== "none" ? T.teal : T.muted, fontSize: 12, margin: "7px 0 0", lineHeight: 1.5 } }, voiceMode === "browser" ? "Replies are read by this device's own voice — instant, but robotic. Pick the voice below." : ttsProvider === "none" ? "No cloud voice is configured on this deployment — the browser voice below is used." : ttsProvider === "deepgram" ? "Deepgram Aura-2 — each character gets a matching Mexican voice automatically. The browser voice below is the fallback only." : "ElevenLabs — natural voice. The browser voice below is the fallback only."),
+    /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 14 } }, "Browser voice"),
+    voiceMode !== "browser" && ttsProvider === "none" && dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active via your key — the picker below is the fallback voice only."),
     /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: () => speak("\xBFTodo bien? Aqu\xED andamos, listos para platicar.") }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Test this voice"),
     ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),
