@@ -25,6 +25,111 @@ const T = {
 const FONT_HEAD = "'Archivo', system-ui, sans-serif";
 const FONT_BODY = "'IBM Plex Sans', system-ui, sans-serif";
 const FONT_MONO = "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace";
+const MODEL = "claude-sonnet-4-6";
+// ---- Debug instrumentation (PERFORMANCE.md §6). Enable with ?debug=1 or localStorage.st_debug = "1".
+// Every call is a no-op when debug is off. One "turn" = one exchange; a new turn starts on each mic
+// press (or on a request that follows a completed one, e.g. the scene opener or a retry).
+const DEBUG = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
+    return localStorage.getItem("st_debug") === "1";
+  } catch (e) {
+    return false;
+  }
+})();
+const perf = (() => {
+  const noop = () => {
+  };
+  if (!DEBUG) return { on: false, turn: noop, mark: noop, note: noop, current: () => null, log: () => [] };
+  const turns = [];
+  let cur = null;
+  let count = 0;
+  const now = () => performance.now();
+  const sec = (v) => v == null ? "" : (v / 1e3).toFixed(2) + " s";
+  const msec = (v) => v == null ? "" : Math.round(v) + " ms";
+  const summary = (t) => {
+    const m = t.marks, n = t.notes, u = n.usage || {};
+    const d = (a, b) => m[a] != null && m[b] != null ? m[b] - m[a] : null;
+    return {
+      turn: t.turn,
+      sttEngine: n.sttEngine || "",
+      mic_to_open: sec(d("mic_press", "stt_open")),
+      stt_final: sec(d("stop_pressed", "stt_final")),
+      close_to_final: sec(d("stt_close_sent", "stt_final")),
+      dwell: sec(d("pending_shown", "send_pressed")),
+      ttfb: sec(d("req_sent", "res_headers")),
+      gen: sec(d("res_headers", "res_body")),
+      model: sec(d("req_sent", "res_body")),
+      parse: msec(d("res_body", "parsed")),
+      render: msec(d("parsed", "reply_rendered")),
+      tts_first: sec(d("tts_requested", "tts_playing")),
+      voice: (n.voiceMode || "") + (n.voiceLocalService === false ? " (online voice)" : ""),
+      in_tok: u.input_tokens == null ? "" : u.input_tokens,
+      out_tok: u.output_tokens == null ? "" : u.output_tokens,
+      cache_read: u.cache_read_input_tokens == null ? "" : u.cache_read_input_tokens,
+      cache_write: u.cache_creation_input_tokens == null ? "" : u.cache_creation_input_tokens,
+      reqKB: n.reqBytes == null ? "" : (n.reqBytes / 1024).toFixed(1),
+      fallback: n.fallbackTimerFired === true,
+      afterClose: n.transcriptAfterClose === true,
+      stop: n.stopReason || ""
+    };
+  };
+  const stageTable = (t) => {
+    const keys = Object.keys(t.marks).sort((a, b) => t.marks[a] - t.marks[b]);
+    let prev = 0;
+    return keys.map((k) => {
+      const at = t.marks[k];
+      const row = { stage: k, at_ms: Math.round(at), delta_ms: Math.round(at - prev) };
+      prev = at;
+      return row;
+    });
+  };
+  const turn = () => {
+    count += 1;
+    cur = { turn: count, startedAt: (/* @__PURE__ */ new Date()).toISOString(), t0: now(), marks: {}, notes: {} };
+    turns.push(cur);
+    if (turns.length > 50) turns.shift();
+    window.__stPerf = turns;
+    return count;
+  };
+  const mark = (stage) => {
+    if (!cur && stage.indexOf("tts_") === 0) return;
+    if (!cur || stage === "mic_press") turn();
+    if (cur.marks[stage] != null) return;
+    cur.marks[stage] = now() - cur.t0;
+    try {
+      performance.mark(`st:${cur.turn}:${stage}`);
+    } catch (e) {
+    }
+    if (stage === "reply_rendered") {
+      try {
+        performance.measure(`st:${cur.turn}:model`, `st:${cur.turn}:req_sent`, `st:${cur.turn}:res_body`);
+      } catch (e) {
+      }
+      cur.summary = summary(cur);
+      try {
+        console.groupCollapsed(`[perf] turn ${cur.turn}  model ${cur.summary.model || "?"}  stt ${cur.summary.stt_final || "-"}  dwell ${cur.summary.dwell || "-"}`);
+        console.table(stageTable(cur));
+        console.table([cur.summary]);
+        console.groupEnd();
+      } catch (e) {
+      }
+    } else if (stage === "tts_playing") {
+      cur.summary = summary(cur);
+      try {
+        console.log(`[perf] turn ${cur.turn} tts_first ${cur.summary.tts_first} (${cur.summary.voice})`);
+      } catch (e) {
+      }
+    }
+  };
+  const note = (key, value) => {
+    if (!cur) return;
+    cur.notes[key] = value;
+  };
+  const log = () => turns.map((t) => ({ ...t, summary: summary(t) }));
+  return { on: true, turn, mark, note, current: () => cur, log };
+})();
+const TRANSLATE_SYSTEM = "You translate one line of spoken Mexican Spanish into natural, idiomatic English for a language learner. Reply with ONLY the English translation: no quotation marks, no notes, no alternatives, nothing else. Keep the register (casual slang stays casual; formal stays formal).";
 const LEVELS = ["Pre-A1", "A1", "A2", "B1", "B2", "C1"];
 const LOW_LEVELS = ["Pre-A1", "A1", "A2"];
 const SPEEDS = [
@@ -168,7 +273,7 @@ const LEVEL_RULES = {
   B2: "Full native speed: sarcasm, cultural references, no accommodation. Three to five sentences per turn.",
   C1: "Full native speed: sarcasm, wordplay, cultural references, zero accommodation. Three to six sentences per turn."
 };
-const SCENE_OPEN = "(La escena empieza ahora. Da tu primera l\xEDnea en tu personaje para abrir la situaci\xF3n con el usuario. Responde en el formato JSON indicado.)";
+const SCENE_OPEN = "(La escena empieza ahora. Da tu primera l\xEDnea en tu personaje para abrir la situaci\xF3n con el usuario. Responde solo con las palabras que dice tu personaje, sin nada m\xE1s.)";
 function buildCharacterSystem(scenario, level, speedId, briefing) {
   const speedNote = speedId === "despacio" ? "Speaking-speed setting: DESPACIO. Go even slower and plainer than your level guidance suggests \u2014 shorter sentences, simpler wording." : speedId === "rapido" ? "Speaking-speed setting: R\xC1PIDO. Lean natural and quick \u2014 connected phrasing, a notch more colloquial than your level guidance suggests." : "";
   const lines = [
@@ -214,9 +319,8 @@ function buildCharacterSystem(scenario, level, speedId, briefing) {
   }
   lines.push(
     "",
-    "Output format \u2014 critical. Reply with ONLY one JSON object and nothing else. No markdown fences, no extra keys, no text before or after:",
-    '{"spanish":"exactly what your character says out loud","english":"a natural English translation of that line"}',
-    "Earlier turns of yours appear in the history as plain Spanish text; you still answer in this JSON format every single time."
+    "Output format \u2014 critical. Reply with ONLY the words your character says out loud, as plain text on a single line: no name label, no quotation marks around the line, no translation, no JSON, no markdown, nothing before or after.",
+    "Earlier turns of yours appear in the history as plain Spanish text \u2014 keep answering exactly that way."
   );
   return lines.join("\n");
 }
@@ -262,7 +366,29 @@ function readKey() {
     return "";
   }
 }
-async function callClaude(system, messages) {
+// opts.cache: prompt caching (PERFORMANCE.md fix 6). cache_control goes on content blocks, not on the
+//   request: one breakpoint on the system block, one on the last message so the growing history is
+//   served from cache from turn ~3 on (Sonnet 4.6 needs a >= 1024-token prefix; the system prompt
+//   alone is ~800 tokens, so the moving breakpoint is what makes this pay).
+// opts.track: record §6 perf marks for this call (chat turns only; report/translation calls are not turns).
+async function callClaude(system, messages, opts = {}) {
+  const body = { model: MODEL, max_tokens: 1e3, system, messages };
+  if (opts.cache) {
+    body.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+    const last = messages[messages.length - 1];
+    if (last && typeof last.content === "string") {
+      body.messages = messages.slice(0, -1).concat([
+        { role: last.role, content: [{ type: "text", text: last.content, cache_control: { type: "ephemeral" } }] }
+      ]);
+    }
+  }
+  const payload = JSON.stringify(body);
+  const track = !!opts.track && perf.on;
+  if (track) {
+    perf.mark("req_built");
+    perf.note("reqBytes", new TextEncoder().encode(payload).length);
+    perf.mark("req_sent");
+  }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -271,11 +397,21 @@ async function callClaude(system, messages) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1e3, system, messages })
+    body: payload
   });
+  if (track) perf.mark("res_headers");
   if (res.status === 401 || res.status === 403) throw new Error("auth");
   if (!res.ok) throw new Error("API " + res.status);
   const data = await res.json();
+  if (track) {
+    perf.mark("res_body");
+    perf.note("usage", data.usage || null);
+    perf.note("stopReason", data.stop_reason || null);
+    try {
+      perf.note("requestId", res.headers.get("request-id"));
+    } catch (e) {
+    }
+  }
   return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
 }
 function toApi(msgs) {
@@ -288,19 +424,28 @@ function toApi(msgs) {
 function stripFences(raw) {
   return String(raw || "").replace(/```json|```/gi, "").trim();
 }
-function parseReply(raw) {
-  const cleaned = stripFences(raw);
+// The live reply is plain Spanish text (fix 3). The legacy {"spanish","english"} shape is still
+// accepted in case the model drifts back to it; a stray name label or wrapping quotes are removed.
+function parseReply(raw, name) {
+  let cleaned = stripFences(raw);
   const s = cleaned.indexOf("{");
   const e = cleaned.lastIndexOf("}");
   if (s !== -1 && e > s) {
     try {
       const o = JSON.parse(cleaned.slice(s, e + 1));
       if (o && typeof o.spanish === "string" && o.spanish.trim()) {
-        return { spanish: o.spanish.trim(), english: typeof o.english === "string" ? o.english.trim() : null };
+        const en = typeof o.english === "string" ? o.english.trim() : "";
+        return { spanish: o.spanish.trim(), english: en || null };
       }
     } catch (err) {
     }
   }
+  if (name) {
+    const label = new RegExp("^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[:\\u2014-]\\s*", "i");
+    cleaned = cleaned.replace(label, "").trim();
+  }
+  const wrapped = /^[«"“](.*)["”»]$/s.exec(cleaned);
+  if (wrapped) cleaned = wrapped[1].trim();
   return { spanish: cleaned, english: null };
 }
 function parseReport(raw) {
@@ -374,6 +519,7 @@ function SpanishSpeakingTrainer() {
   const [report, setReport] = useState(null);
   const [reportError, setReportError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [perfCopied, setPerfCopied] = useState(false);
   const [copyFail, setCopyFail] = useState(false);
   const [rawOpen, setRawOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => readKey());
@@ -417,6 +563,8 @@ function SpanishSpeakingTrainer() {
   const ttsProviderRef = useRef("none");
   const voiceModeRef = useRef("deepgram");
   const speakSeqRef = useRef(0);
+  const synthCancelledAtRef = useRef(0);
+  const renderMarkRef = useRef(null);
   const startPendingRef = useRef(false);
   const stopWantedRef = useRef(false);
   const spaceDownAtRef = useRef(0);
@@ -514,26 +662,43 @@ function SpanishSpeakingTrainer() {
       setTtsWarn(true);
       return;
     }
-    const mx = esVoices.find(
-      (v) => (v.lang || "").toLowerCase().includes("mx") || /mexic/i.test(v.name || "")
-    );
-    setVoiceURI((mx || esVoices[0]).voiceURI);
+    // On-device voices first: Chrome's network-backed "Google …" voices add 0.3–1 s before the first
+    // word and need connectivity (fix 10). Within each group: Mexican, then other Latin American, then any es.
+    const score = (v) => {
+      const lang = (v.lang || "").toLowerCase();
+      const mx = lang.includes("mx") || /mexic/i.test(v.name || "");
+      const latam = /es[-_](us|419)/.test(lang);
+      return (v.localService === false ? 0 : 100) + (mx ? 10 : latam ? 5 : 0);
+    };
+    const best = esVoices.slice().sort((a, b) => score(b) - score(a))[0];
+    setVoiceURI(best.voiceURI);
     setTtsWarn(false);
   }, [voices, esVoices, voiceURI]);
   const speakBrowser = (text) => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
     if (!synth || !text) return;
-    try {
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "es-MX";
-      const v = voicesRef.current.find((x) => x.voiceURI === voiceURIRef.current);
-      if (v) u.voice = v;
-      const sp = SPEEDS.find((s) => s.id === speedRef.current);
-      u.rate = sp ? sp.rate : 1;
-      synth.speak(u);
-    } catch (e) {
-    }
+    const seq = speakSeqRef.current;
+    const go = () => {
+      if (seq !== speakSeqRef.current) return;
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "es-MX";
+        const v = voicesRef.current.find((x) => x.voiceURI === voiceURIRef.current);
+        if (v) u.voice = v;
+        const sp = SPEEDS.find((s) => s.id === speedRef.current);
+        u.rate = sp ? sp.rate : 1;
+        perf.note("voiceLocalService", v ? v.localService !== false : null);
+        u.onstart = () => perf.mark("tts_playing");
+        u.onend = () => perf.mark("tts_ended");
+        synth.speak(u);
+      } catch (e) {
+      }
+    };
+    // Chromium can drop an utterance queued in the same tick as a cancel() that interrupted live
+    // speech (fix 10). stopSpeaking() has already cancelled; if that cut off an utterance, wait a beat.
+    const since = performance.now() - synthCancelledAtRef.current;
+    if (since < 120) setTimeout(go, 120 - since);
+    else go();
   };
   const stopSpeaking = () => {
     speakSeqRef.current += 1;
@@ -550,7 +715,11 @@ function SpanishSpeakingTrainer() {
     } catch (e) {
     }
     try {
-      window.speechSynthesis && window.speechSynthesis.cancel();
+      const synth = window.speechSynthesis;
+      if (synth) {
+        if (synth.speaking || synth.pending) synthCancelledAtRef.current = performance.now();
+        synth.cancel();
+      }
     } catch (e) {
     }
   };
@@ -580,7 +749,10 @@ function SpanishSpeakingTrainer() {
       const sp = SPEEDS.find((s) => s.id === speedRef.current);
       a.playbackRate = sp ? sp.rate : 1;
       let started = false;
+      a.onloadstart = () => perf.mark("tts_loadstart");
+      a.oncanplay = () => perf.mark("tts_canplay");
       a.onended = () => {
+        perf.mark("tts_ended");
         if (audioRef.current === a) audioRef.current = null;
       };
       a.onerror = () => {
@@ -589,6 +761,7 @@ function SpanishSpeakingTrainer() {
       };
       a.onplaying = () => {
         started = true;
+        perf.mark("tts_playing");
         resolve();
       };
       a.src = cloudTtsUrl(text);
@@ -599,6 +772,8 @@ function SpanishSpeakingTrainer() {
     });
   const speak = async (text) => {
     if (!text) return;
+    perf.mark("tts_requested");
+    perf.note("voiceMode", voiceModeRef.current === "browser" ? "browser" : ttsProviderRef.current !== "none" ? ttsProviderRef.current : dgKeyRef.current ? "deepgram-direct" : "browser");
     stopSpeaking();
     if (voiceModeRef.current === "browser") {
       speakBrowser(text);
@@ -716,6 +891,8 @@ function SpanishSpeakingTrainer() {
     r.maxAlternatives = 1;
     r._stopRequested = false;
     r._lastRestart = 0;
+    perf.note("sttEngine", "webspeech");
+    r.onstart = () => perf.mark("stt_open");
     finalRef.current = "";
     abortedRef.current = false;
     r.onresult = (e) => {
@@ -725,6 +902,7 @@ function SpanishSpeakingTrainer() {
         if (res.isFinal) finalRef.current += res[0].transcript;
         else interimText += res[0].transcript;
       }
+      if (finalRef.current || interimText) perf.mark("stt_first_interim");
       setInterim((finalRef.current + " " + interimText).trim());
     };
     r.onerror = (e) => {
@@ -749,6 +927,7 @@ function SpanishSpeakingTrainer() {
       listeningRef.current = false;
       setListening(false);
       stopMeter();
+      perf.mark("stt_final");
       const t = finalRef.current.trim();
       finalRef.current = "";
       setInterim("");
@@ -786,6 +965,7 @@ function SpanishSpeakingTrainer() {
     listeningRef.current = false;
     setListening(false);
     stopMeter();
+    perf.mark("stt_final");
     const t = finalRef.current.trim();
     finalRef.current = "";
     setInterim("");
@@ -820,6 +1000,7 @@ function SpanishSpeakingTrainer() {
   const startDeepgram = async () => {
     stopSpeaking();
     setSttNote(null);
+    perf.note("sttEngine", "deepgram");
     finalRef.current = "";
     abortedRef.current = false;
     startPendingRef.current = true;
@@ -871,6 +1052,7 @@ function SpanishSpeakingTrainer() {
         }
         return;
       }
+      perf.mark("stt_open");
       let mr;
       try {
         const mime = window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
@@ -898,6 +1080,8 @@ function SpanishSpeakingTrainer() {
       const t = (alt.transcript || "").trim();
       if (!t) return;
       ws._gotTranscript = true;
+      perf.mark("stt_first_interim");
+      if (ws._closeSent) perf.note("transcriptAfterClose", true);
       if (msg.is_final) {
         finalRef.current = (finalRef.current + " " + t).trim() + " ";
         setInterim(finalRef.current.trim());
@@ -924,26 +1108,49 @@ function SpanishSpeakingTrainer() {
   const startListening = () => {
     if (phaseRef.current !== "live" || listeningRef.current || awaitingRef.current || pendingRef.current || replyErrorRef.current)
       return;
+    perf.mark("mic_press");
     if (dgKeyRef.current && !dgFailedRef.current) startDeepgram();
     else startWebSpeech();
   };
   const stopListening = () => {
+    perf.mark("stop_pressed");
     if (startPendingRef.current) {
       stopWantedRef.current = true;
       return;
     }
     if (wsRef.current) {
       const ws = wsRef.current;
-      try {
-        mediaRecRef.current && mediaRecRef.current.stop();
-      } catch (e) {
+      const mr = mediaRecRef.current;
+      // Fix 5 (PERFORMANCE.md): MediaRecorder.stop() delivers its final chunk asynchronously, so
+      // sending CloseStream in the same tick put the tail of the last word behind the close marker.
+      // Send CloseStream from the recorder's stop event, i.e. after that last chunk has gone out.
+      const sendClose = () => {
+        try {
+          if (ws.readyState === 1 && !ws._closeSent) {
+            ws.send(JSON.stringify({ type: "CloseStream" }));
+            ws._closeSent = true;
+            perf.mark("stt_close_sent");
+          }
+        } catch (e) {
+        }
+      };
+      if (ws.readyState === 0) {
+        // Socket still connecting: onopen closes it immediately (the fallback below still applies).
+        stopWantedRef.current = true;
+      } else if (mr && mr.state !== "inactive") {
+        mr.onstop = sendClose;
+        try {
+          mr.stop();
+        } catch (e) {
+          sendClose();
+        }
+      } else {
+        sendClose();
       }
-      try {
-        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "CloseStream" }));
-      } catch (e) {
-      }
+      // Fallback stays at 1200 ms until the debug log shows how long CloseStream → close really takes.
       if (!dgStopTimerRef.current)
         dgStopTimerRef.current = setTimeout(() => {
+          perf.note("fallbackTimerFired", true);
           try {
             ws.close();
           } catch (e) {
@@ -980,6 +1187,7 @@ function SpanishSpeakingTrainer() {
   const queuePending = (text) => {
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
     setSttNote(null);
+    perf.mark("pending_shown");
     setPending({ text, key: Date.now() });
   };
   const redoPending = () => {
@@ -991,6 +1199,7 @@ function SpanishSpeakingTrainer() {
   const sendPending = () => {
     const p = pendingRef.current;
     if (!p) return;
+    perf.mark("send_pressed");
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
     setPending(null);
     sendUserTurn(p.text);
@@ -1006,21 +1215,39 @@ function SpanishSpeakingTrainer() {
     () => scenario ? buildCharacterSystem(scenario, level, speed, briefing) : "",
     [scenario, level, speed, briefing]
   );
-  const fetchCharacterReply = async (systemOverride) => {
+  // Fix 3: the live reply is Spanish only; the English translation is fetched in the background
+  // right after the Spanish is committed (and again on demand if that fails), so the toggle still works.
+  const fetchEnglish = async (id, spanish) => {
+    setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, englishPending: true, englishErr: false } : m));
+    try {
+      const raw = await callClaude(TRANSLATE_SYSTEM, [{ role: "user", content: spanish }]);
+      const en = stripFences(raw).replace(/^["“]+|["”]+$/g, "").trim();
+      setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, english: en || null, englishPending: false, englishErr: !en } : m));
+    } catch (e) {
+      setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, englishPending: false, englishErr: true } : m));
+    }
+  };
+  const fetchCharacterReply = async (systemOverride, scenarioOverride) => {
+    if (perf.on) {
+      const cur = perf.current();
+      if (cur && cur.marks.req_sent != null) perf.turn();
+    }
     setAwaitingReply(true);
     awaitingRef.current = true;
     setReplyError(false);
     try {
-      const raw = await callClaude(systemOverride || systemPrompt, toApi(messagesRef.current));
-      const rep = parseReply(raw);
-      const next = [
-        ...messagesRef.current,
-        { id: ++idRef.current, role: "assistant", spanish: rep.spanish, english: rep.english, showEn: false }
-      ];
+      const raw = await callClaude(systemOverride || systemPrompt, toApi(messagesRef.current), { cache: true, track: true });
+      const sc = scenarioOverride || scenarioRef.current;
+      const rep = parseReply(raw, sc ? sc.name : null);
+      perf.mark("parsed");
+      const msg = { id: ++idRef.current, role: "assistant", spanish: rep.spanish, english: rep.english, englishPending: false, englishErr: false, showEn: false };
+      const next = [...messagesRef.current, msg];
+      if (perf.on) renderMarkRef.current = msg.id;
       setMsgs(next);
       setAwaitingReply(false);
       awaitingRef.current = false;
       speak(rep.spanish);
+      if (!msg.english) fetchEnglish(msg.id, rep.spanish);
     } catch (e) {
       setAwaitingReply(false);
       awaitingRef.current = false;
@@ -1044,7 +1271,11 @@ function SpanishSpeakingTrainer() {
     setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, flagged: !m.flagged } : m));
   };
   const toggleEn = (id) => {
-    setMsgs(messagesRef.current.map((m) => m.id === id ? { ...m, showEn: !m.showEn } : m));
+    const m = messagesRef.current.find((x) => x.id === id);
+    if (!m) return;
+    const show = !m.showEn;
+    setMsgs(messagesRef.current.map((x) => x.id === id ? { ...x, showEn: show } : x));
+    if (show && !m.english && !m.englishPending) fetchEnglish(id, m.spanish);
   };
   const startScenario = (s) => {
     const spd = LOW_LEVELS.includes(level) ? "despacio" : "normal";
@@ -1064,7 +1295,7 @@ function SpanishSpeakingTrainer() {
     sessionStartRef.current = Date.now();
     setPhase("live");
     phaseRef.current = "live";
-    fetchCharacterReply(buildCharacterSystem(s, level, spd, briefing));
+    fetchCharacterReply(buildCharacterSystem(s, level, spd, briefing), s);
   };
   const effectiveReportLang = () => reportLangPref === "auto" ? LOW_LEVELS.includes(level) ? "en" : "es" : reportLangPref;
   const runAnalysis = async (lang) => {
@@ -1161,6 +1392,17 @@ Produce the JSON analysis now.`
       setRawOpen(true);
     }
   };
+  const copyPerfLog = async () => {
+    const json = JSON.stringify({ exportedAt: (/* @__PURE__ */ new Date()).toISOString(), turns: perf.log() }, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      setPerfCopied(true);
+      setTimeout(() => setPerfCopied(false), 2e3);
+    } catch (e) {
+      console.log("[perf] log", json);
+      setPerfCopied(false);
+    }
+  };
   useEffect(() => {
     const down = (e) => {
       const tag = (e.target && e.target.tagName || "").toUpperCase();
@@ -1207,6 +1449,15 @@ Produce the JSON analysis now.`
   useEffect(() => {
     if (endRef.current) endRef.current.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth" });
   }, [messages, interim, pending, awaitingReply, replyError]);
+  useEffect(() => {
+    // The awaited reply and the background-translation flag can land in the same React batch,
+    // so match on the message id rather than on array identity.
+    const id = renderMarkRef.current;
+    if (id != null && messages.some((m) => m.id === id)) {
+      renderMarkRef.current = null;
+      perf.mark("reply_rendered");
+    }
+  }, [messages]);
   useEffect(() => {
     return () => {
       try {
@@ -1497,7 +1748,7 @@ Produce the JSON analysis now.`
           lineHeight: 1.5
         }
       },
-      m.english || "No translation came through for this line."
+      m.english || (m.englishPending ? "Translating…" : m.englishErr ? "Couldn't translate this line — tap English again to retry." : "No translation for this line yet.")
     ))) : /* @__PURE__ */ React.createElement("div", { key: m.id, style: { display: "flex", justifyContent: "flex-end", margin: "9px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: "86%", display: "flex", flexDirection: "column", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -1741,7 +1992,7 @@ Produce the JSON analysis now.`
     /* @__PURE__ */ React.createElement("p", { style: { color: voiceMode !== "browser" && ttsProvider !== "none" ? T.teal : T.muted, fontSize: 12, margin: "7px 0 0", lineHeight: 1.5 } }, voiceMode === "browser" ? "Replies are read by this device's own voice — instant, but robotic. Pick the voice below." : ttsProvider === "none" ? "No cloud voice is configured on this deployment — the browser voice below is used." : ttsProvider === "deepgram" ? "Deepgram Aura-2 — each character gets a matching Mexican voice automatically. The browser voice below is the fallback only." : "ElevenLabs — natural voice. The browser voice below is the fallback only."),
     /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 14 } }, "Browser voice"),
     voiceMode !== "browser" && ttsProvider === "none" && dgKey && /* @__PURE__ */ React.createElement("p", { style: { color: T.teal, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Deepgram Aura active via your key — the picker below is the fallback voice only."),
-    /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))),
+    /* @__PURE__ */ React.createElement("select", { className: "sel", value: voiceURI || "", onChange: (e) => setVoiceURI(e.target.value || null) }, esVoices.length === 0 && /* @__PURE__ */ React.createElement("option", { value: "" }, "System default"), esVoices.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, v.localService === false ? ", online" : "", ")"))),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: () => speak("\xBFTodo bien? Aqu\xED andamos, listos para platicar.") }, /* @__PURE__ */ React.createElement(SpeakerIcon, null), " Test this voice"),
     ttsWarn && /* @__PURE__ */ React.createElement("p", { style: { color: T.amber, fontSize: 12, margin: "8px 0 0", lineHeight: 1.5 } }, "No Spanish voice found on this device \u2014 the system default will read the replies."),
     /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Report corrections"),
@@ -1763,6 +2014,9 @@ Produce the JSON analysis now.`
         spellCheck: false
       }
     ), /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 7 }, onClick: saveDgKey, disabled: !dgDraft.trim() }, "Save Deepgram key")),
+    perf.on && /* @__PURE__ */ React.createElement("div", { style: { ...labelStyle, marginTop: 18 } }, "Debug"),
+    perf.on && /* @__PURE__ */ React.createElement("p", { style: { color: T.muted, fontSize: 12, margin: "0 0 7px", lineHeight: 1.5 } }, "Per-turn timings print to the console (PERFORMANCE.md §6); the last 50 turns are kept in window.__stPerf.", perfCopied ? " Copied." : ""),
+    perf.on && /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: copyPerfLog }, "Copy perf log"),
     /* @__PURE__ */ React.createElement("button", { className: "tbtn", style: { marginTop: 16 }, onClick: clearKey }, "Change API key (ends the current session)"),
     /* @__PURE__ */ React.createElement("button", { className: "btnG", style: { marginTop: 10, width: "100%" }, onClick: () => setSettingsOpen(false) }, "Done")
   ));
